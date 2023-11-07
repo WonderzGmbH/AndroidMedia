@@ -497,9 +497,13 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
           if (loadErrorHandlingPolicy != null) {
             progressiveMediaSourceFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
           }
+          final MediaItem.SubtitleConfiguration subtitleConfiguration = subtitleConfigurations.get(i);
+          final MediaItem subtitleMediaItem = new MediaItem.Builder()
+              .setUri(subtitleConfiguration.uri.toString())
+              .setCustomCacheKey(subtitleConfiguration.customCacheKey)
+              .build();
           mediaSources[i + 1] =
-              progressiveMediaSourceFactory.createMediaSource(
-                  MediaItem.fromUri(subtitleConfigurations.get(i).uri.toString()));
+              progressiveMediaSourceFactory.createMediaSource(subtitleMediaItem);
         } else {
           SingleSampleMediaSource.Factory singleSampleMediaSourceFactory =
               new SingleSampleMediaSource.Factory(dataSourceFactory);

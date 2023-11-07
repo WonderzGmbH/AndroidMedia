@@ -169,6 +169,7 @@ public final class SingleSampleMediaSource extends BaseMediaSource {
             .setMediaId(subtitleConfiguration.uri.toString())
             .setSubtitleConfigurations(ImmutableList.of(subtitleConfiguration))
             .setTag(tag)
+            .setCustomCacheKey(subtitleConfiguration.customCacheKey)
             .build();
     this.format =
         new Format.Builder()
@@ -183,6 +184,7 @@ public final class SingleSampleMediaSource extends BaseMediaSource {
         new DataSpec.Builder()
             .setUri(subtitleConfiguration.uri)
             .setFlags(DataSpec.FLAG_ALLOW_GZIP)
+            .setKey(subtitleConfiguration.customCacheKey)
             .build();
     this.timeline =
         new SinglePeriodTimeline(

@@ -1512,6 +1512,7 @@ public final class MediaItem implements Bundleable {
       private @C.RoleFlags int roleFlags;
       @Nullable private String label;
       @Nullable private String id;
+      @Nullable private String customCacheKey;
 
       /**
        * Constructs an instance.
@@ -1530,6 +1531,7 @@ public final class MediaItem implements Bundleable {
         this.roleFlags = subtitleConfiguration.roleFlags;
         this.label = subtitleConfiguration.label;
         this.id = subtitleConfiguration.id;
+        this.customCacheKey = subtitleConfiguration.customCacheKey;
       }
 
       /** Sets the {@link Uri} to the subtitle file. */
@@ -1581,6 +1583,12 @@ public final class MediaItem implements Bundleable {
         return this;
       }
 
+      @CanIgnoreReturnValue
+      public Builder setCustomCacheKey(@Nullable String customCacheKey) {
+        this.customCacheKey = customCacheKey;
+        return this;
+      }
+
       /** Creates a {@link SubtitleConfiguration} from the values of this builder. */
       public SubtitleConfiguration build() {
         return new SubtitleConfiguration(this);
@@ -1609,6 +1617,8 @@ public final class MediaItem implements Bundleable {
      */
     @Nullable public final String id;
 
+    @Nullable public final String customCacheKey;
+
     private SubtitleConfiguration(
         Uri uri,
         String mimeType,
@@ -1616,7 +1626,8 @@ public final class MediaItem implements Bundleable {
         int selectionFlags,
         int roleFlags,
         @Nullable String label,
-        @Nullable String id) {
+        @Nullable String id,
+        @Nullable String customCacheKey) {
       this.uri = uri;
       this.mimeType = mimeType;
       this.language = language;
@@ -1624,6 +1635,7 @@ public final class MediaItem implements Bundleable {
       this.roleFlags = roleFlags;
       this.label = label;
       this.id = id;
+      this.customCacheKey = customCacheKey;
     }
 
     private SubtitleConfiguration(Builder builder) {
@@ -1634,6 +1646,7 @@ public final class MediaItem implements Bundleable {
       this.roleFlags = builder.roleFlags;
       this.label = builder.label;
       this.id = builder.id;
+      this.customCacheKey = builder.customCacheKey;
     }
 
     /** Returns a {@link Builder} initialized with the values of this instance. */
@@ -1658,7 +1671,8 @@ public final class MediaItem implements Bundleable {
           && selectionFlags == other.selectionFlags
           && roleFlags == other.roleFlags
           && Util.areEqual(label, other.label)
-          && Util.areEqual(id, other.id);
+          && Util.areEqual(id, other.id)
+          && Util.areEqual(customCacheKey, other.customCacheKey);
     }
 
     @Override
@@ -1670,6 +1684,7 @@ public final class MediaItem implements Bundleable {
       result = 31 * result + roleFlags;
       result = 31 * result + (label == null ? 0 : label.hashCode());
       result = 31 * result + (id == null ? 0 : id.hashCode());
+      result = 31 * result + (customCacheKey == null ? 0 : customCacheKey.hashCode());
       return result;
     }
 
@@ -1682,6 +1697,7 @@ public final class MediaItem implements Bundleable {
     private static final String FIELD_ROLE_FLAGS = Util.intToStringMaxRadix(4);
     private static final String FIELD_LABEL = Util.intToStringMaxRadix(5);
     private static final String FIELD_ID = Util.intToStringMaxRadix(6);
+    private static final String FIELD_CUSTOM_CACHE_KEY = Util.intToStringMaxRadix(7);
 
     /** An object that can restore {@link SubtitleConfiguration} from a {@link Bundle}. */
     @UnstableApi
@@ -1696,6 +1712,7 @@ public final class MediaItem implements Bundleable {
       @C.RoleFlags int roleFlags = bundle.getInt(FIELD_ROLE_FLAGS, 0);
       @Nullable String label = bundle.getString(FIELD_LABEL);
       @Nullable String id = bundle.getString(FIELD_ID);
+      @Nullable String customCacheKey = bundle.getString(FIELD_CUSTOM_CACHE_KEY);
 
       SubtitleConfiguration.Builder builder = new SubtitleConfiguration.Builder(uri);
       return builder
@@ -1705,6 +1722,7 @@ public final class MediaItem implements Bundleable {
           .setRoleFlags(roleFlags)
           .setLabel(label)
           .setId(id)
+          .setCustomCacheKey(customCacheKey)
           .build();
     }
 
@@ -1730,6 +1748,9 @@ public final class MediaItem implements Bundleable {
       }
       if (id != null) {
         bundle.putString(FIELD_ID, id);
+      }
+      if (customCacheKey != null) {
+        bundle.putString(FIELD_CUSTOM_CACHE_KEY, customCacheKey);
       }
       return bundle;
     }
@@ -1773,7 +1794,7 @@ public final class MediaItem implements Bundleable {
         @C.SelectionFlags int selectionFlags,
         @C.RoleFlags int roleFlags,
         @Nullable String label) {
-      super(uri, mimeType, language, selectionFlags, roleFlags, label, /* id= */ null);
+      super(uri, mimeType, language, selectionFlags, roleFlags, label, /* id= */ null, /* customCacheKey= */ null);
     }
 
     private Subtitle(Builder builder) {
