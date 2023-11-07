@@ -23,9 +23,6 @@ android {
         }
     }
     sourceSets.androidTest.assets.srcDir '../test_data/src/test/assets/'
-    lint {
-        baseline = file("lint-baseline.xml")
-    }
 }
 dependencies {
     api project(modulePrefix + 'lib-common')
