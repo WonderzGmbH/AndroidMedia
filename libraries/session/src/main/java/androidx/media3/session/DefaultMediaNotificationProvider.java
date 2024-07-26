@@ -39,13 +39,13 @@ import androidx.annotation.RequiresApi;
 import androidx.annotation.StringRes;
 import androidx.core.app.NotificationCompat;
 import androidx.core.graphics.drawable.IconCompat;
-import androidx.media.app.NotificationCompat.MediaStyle;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.session.MediaStyleNotificationHelper.MediaStyle;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -87,10 +87,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
  * resource IDs are:
  *
  * <ul>
- *   <li><b>{@code media3_notification_play}</b> - The play icon.
- *   <li><b>{@code media3_notification_pause}</b> - The pause icon.
- *   <li><b>{@code media3_notification_seek_to_previous}</b> - The previous icon.
- *   <li><b>{@code media3_notification_seek_to_next}</b> - The next icon.
+ *   <li><b>{@code media3_icon_play}</b> - The play icon.
+ *   <li><b>{@code media3_icon_pause}</b> - The pause icon.
+ *   <li><b>{@code media3_icon_previous}</b> - The previous icon.
+ *   <li><b>{@code media3_icon_next}</b> - The next icon.
  *   <li><b>{@code media3_notification_small_icon}</b> - The {@link
  *       NotificationCompat.Builder#setSmallIcon(int) small icon}. A different icon can be set with
  *       {@link #setSmallIcon(int)}.
@@ -319,7 +319,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId);
     int notificationId = notificationIdProvider.getNotificationId(mediaSession);
 
-    MediaStyle mediaStyle = new MediaStyle();
+    MediaStyle mediaStyle = new MediaStyle(mediaSession);
     int[] compactViewIndices =
         addNotificationActions(
             mediaSession,
@@ -375,7 +375,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     long playbackStartTimeMs = getPlaybackStartTimeEpochMs(player);
     boolean displayElapsedTimeWithChronometer = playbackStartTimeMs != C.TIME_UNSET;
     builder
-        .setWhen(playbackStartTimeMs)
+        .setWhen(displayElapsedTimeWithChronometer ? playbackStartTimeMs : 0L)
         .setShowWhen(displayElapsedTimeWithChronometer)
         .setUsesChronometer(displayElapsedTimeWithChronometer);
 
@@ -458,9 +458,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
       commandButtons.add(
-          new CommandButton.Builder()
+          new CommandButton.Builder(CommandButton.ICON_PREVIOUS)
               .setPlayerCommand(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-              .setIconResId(R.drawable.media3_notification_seek_to_previous)
               .setDisplayName(
                   context.getString(R.string.media3_controls_seek_to_previous_description))
               .setExtras(commandButtonExtras)
@@ -469,28 +468,29 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     if (playerCommands.contains(COMMAND_PLAY_PAUSE)) {
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
-      commandButtons.add(
-          new CommandButton.Builder()
-              .setPlayerCommand(COMMAND_PLAY_PAUSE)
-              .setIconResId(
-                  showPauseButton
-                      ? R.drawable.media3_notification_pause
-                      : R.drawable.media3_notification_play)
-              .setExtras(commandButtonExtras)
-              .setDisplayName(
-                  showPauseButton
-                      ? context.getString(R.string.media3_controls_pause_description)
-                      : context.getString(R.string.media3_controls_play_description))
-              .build());
+      if (showPauseButton) {
+        commandButtons.add(
+            new CommandButton.Builder(CommandButton.ICON_PAUSE)
+                .setPlayerCommand(COMMAND_PLAY_PAUSE)
+                .setExtras(commandButtonExtras)
+                .setDisplayName(context.getString(R.string.media3_controls_pause_description))
+                .build());
+      } else {
+        commandButtons.add(
+            new CommandButton.Builder(CommandButton.ICON_PLAY)
+                .setPlayerCommand(COMMAND_PLAY_PAUSE)
+                .setExtras(commandButtonExtras)
+                .setDisplayName(context.getString(R.string.media3_controls_play_description))
+                .build());
+      }
     }
     // Skip to next action.
     if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
       Bundle commandButtonExtras = new Bundle();
       commandButtonExtras.putInt(COMMAND_KEY_COMPACT_VIEW_INDEX, INDEX_UNSET);
       commandButtons.add(
-          new CommandButton.Builder()
+          new CommandButton.Builder(CommandButton.ICON_NEXT)
               .setPlayerCommand(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-              .setIconResId(R.drawable.media3_notification_seek_to_next)
               .setExtras(commandButtonExtras)
               .setDisplayName(context.getString(R.string.media3_controls_seek_to_next_description))
               .build());

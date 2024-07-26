@@ -16,6 +16,7 @@
 package androidx.media3.transformer;
 
 import static androidx.media3.common.util.Util.SDK_INT;
+import static androidx.media3.common.util.Util.isRunningOnEmulator;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.maybeSaveTestBitmap;
 import static androidx.media3.test.utils.BitmapPixelTestUtil.readBitmapUnpremultipliedAlpha;
@@ -62,7 +63,6 @@ import androidx.media3.effect.VideoCompositorSettings;
 import androidx.media3.test.utils.BitmapPixelTestUtil;
 import androidx.media3.test.utils.TextureBitmapReader;
 import androidx.media3.test.utils.VideoFrameProcessorTestRunner;
-import com.google.common.base.Ascii;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
@@ -73,10 +73,8 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
-import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
-import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -96,29 +94,23 @@ public final class DefaultVideoCompositorPixelTest {
   // Golden images were generated on an API 33 emulator. API 26 emulators have a different text
   // rendering implementation that leads to a larger pixel difference.
   public static final float MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE_WITH_TEXT_OVERLAY =
-      (Ascii.toLowerCase(Util.DEVICE).contains("emulator")
-                  || Ascii.toLowerCase(Util.DEVICE).contains("generic"))
-              && SDK_INT <= 26
-          ? 2.5f
-          : MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE;
+      isRunningOnEmulator() && SDK_INT <= 26 ? 2.5f : MAXIMUM_AVERAGE_PIXEL_ABSOLUTE_DIFFERENCE;
 
   @Parameterized.Parameter public boolean useSharedExecutor;
   @Rule public final TestName testName = new TestName();
 
-  private static final String ORIGINAL_PNG_ASSET_PATH =
-      "media/bitmap/input_images/media3test_srgb.png";
-  private static final String TEST_DIRECTORY = "media/bitmap/CompositorTestTimestamps/";
+  private static final String ORIGINAL_PNG_ASSET_PATH = "media/png/media3test_srgb.png";
+  private static final String TEST_DIRECTORY = "test-generated-goldens/CompositorTestTimestamps/";
   private static final ImmutableList<ImmutableList<Effect>> TWO_INPUT_COMPOSITOR_EFFECT_LISTS =
       ImmutableList.of(
           ImmutableList.of(RgbFilter.createGrayscaleFilter(), new AlphaScale(0.7f)),
           ImmutableList.of(
               new ScaleAndRotateTransformation.Builder().setRotationDegrees(180).build()));
 
-  private @MonotonicNonNull String testId;
+  private String testId;
   private @MonotonicNonNull VideoCompositorTestRunner compositorTestRunner;
 
   @Before
-  @EnsuresNonNull("testId")
   public void setUpTestId() {
     testId = testName.getMethodName();
   }
@@ -133,7 +125,6 @@ public final class DefaultVideoCompositorPixelTest {
   // Tests for alpha and frame alpha/occlusion.
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withOneFrameFromEach_differentTimestamp_matchesExpectedBitmap()
       throws Exception {
     compositorTestRunner =
@@ -159,7 +150,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withPrimaryTransparent_differentTimestamp_matchesExpectedBitmap()
       throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
@@ -191,7 +181,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withPrimaryOpaque_differentTimestamp_matchesExpectedBitmap()
       throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
@@ -223,7 +212,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withSecondaryTransparent_differentTimestamp_matchesExpectedBitmap()
       throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
@@ -256,7 +244,6 @@ public final class DefaultVideoCompositorPixelTest {
   // Tests for mixing different frame rates and timestamps.
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withFiveFramesFromEach_matchesExpectedTimestamps()
       throws Exception {
     compositorTestRunner =
@@ -281,7 +268,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_onePrimaryAndFiveSecondaryFrames_matchesExpectedTimestamps()
       throws Exception {
     compositorTestRunner =
@@ -307,7 +293,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_fivePrimaryAndOneSecondaryFrames_matchesExpectedTimestamps()
       throws Exception {
     compositorTestRunner =
@@ -334,7 +319,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_primaryDoubleSecondaryFrameRate_matchesExpectedTimestamps()
       throws Exception {
     compositorTestRunner =
@@ -361,7 +345,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_primaryHalfSecondaryFrameRate_matchesExpectedTimestamps() throws Exception {
     compositorTestRunner =
         new VideoCompositorTestRunner(testId, useSharedExecutor, TWO_INPUT_COMPOSITOR_EFFECT_LISTS);
@@ -387,7 +370,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_primaryVariableFrameRateWithOffset_matchesExpectedTimestampsAndBitmaps()
       throws Exception {
     compositorTestRunner =
@@ -414,7 +396,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void composite_secondaryVariableFrameRateWithOffset_matchesExpectedTimestampsAndBitmaps()
       throws Exception {
     compositorTestRunner =
@@ -443,7 +424,6 @@ public final class DefaultVideoCompositorPixelTest {
   // Tests for "many" inputs/frames.
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_withTenFramesFromEach_matchesExpectedFrameCount()
       throws Exception {
     compositorTestRunner =
@@ -461,7 +441,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeFiveInputs_withFiveFramesFromEach_matchesExpectedFrameCount()
       throws Exception {
     compositorTestRunner =
@@ -485,7 +464,6 @@ public final class DefaultVideoCompositorPixelTest {
   // Tests for different amounts of inputs.
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeOneInput_matchesExpectedBitmap() throws Exception {
     compositorTestRunner =
         new VideoCompositorTestRunner(
@@ -506,7 +484,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeThreeInputs_matchesExpectedBitmap() throws Exception {
     compositorTestRunner =
         new VideoCompositorTestRunner(
@@ -545,7 +522,6 @@ public final class DefaultVideoCompositorPixelTest {
   // Tests for different layouts.
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_pictureInPicture_matchesExpectedBitmap() throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
         ImmutableList.of(ImmutableList.of(), ImmutableList.of(RgbFilter.createGrayscaleFilter()));
@@ -584,7 +560,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_differentDimensions_matchesExpectedBitmap() throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
         ImmutableList.of(
@@ -618,7 +593,6 @@ public final class DefaultVideoCompositorPixelTest {
   }
 
   @Test
-  @RequiresNonNull("testId")
   public void compositeTwoInputs_stacked_matchesExpectedBitmap() throws Exception {
     ImmutableList<ImmutableList<Effect>> inputEffectLists =
         ImmutableList.of(
@@ -770,7 +744,8 @@ public final class DefaultVideoCompositorPixelTest {
                     textureBitmapReader,
                     videoCompositor,
                     sharedExecutorService,
-                    glObjectsProvider)
+                    glObjectsProvider,
+                    /* inputIndex= */ i)
                 .setEffects(effectsToApply.build())
                 .build();
         inputVideoFrameProcessorTestRunners.add(vfpTestRunner);
@@ -781,7 +756,8 @@ public final class DefaultVideoCompositorPixelTest {
      * Queues {@code durationSec} bitmaps, with one bitmap per second, starting from and including
      * {@code 0} seconds. Sources have a {@code frameRate} of {@code 1}.
      */
-    public void queueBitmapToAllInputs(int durationSec) throws IOException, InterruptedException {
+    public void queueBitmapToAllInputs(int durationSec)
+        throws IOException, VideoFrameProcessingException {
       for (int i = 0; i < inputVideoFrameProcessorTestRunners.size(); i++) {
         inputVideoFrameProcessorTestRunners
             .get(i)
@@ -794,7 +770,7 @@ public final class DefaultVideoCompositorPixelTest {
     }
 
     public void queueBitmapToInput(int inputId, List<Long> timestamps)
-        throws IOException, InterruptedException {
+        throws IOException, VideoFrameProcessingException {
       Bitmap bitmap = readBitmapUnpremultipliedAlpha(ORIGINAL_PNG_ASSET_PATH);
       inputVideoFrameProcessorTestRunners
           .get(inputId)
@@ -804,7 +780,7 @@ public final class DefaultVideoCompositorPixelTest {
               Pair.create(bitmap, createTimestampIterator(timestamps)));
     }
 
-    public void endCompositing() {
+    public void endCompositing() throws Exception {
       for (int i = 0; i < inputVideoFrameProcessorTestRunners.size(); i++) {
         inputVideoFrameProcessorTestRunners.get(i).signalEndOfInput();
       }
@@ -880,11 +856,13 @@ public final class DefaultVideoCompositorPixelTest {
         TextureBitmapReader textureBitmapReader,
         VideoCompositor videoCompositor,
         @Nullable ExecutorService executorService,
-        GlObjectsProvider glObjectsProvider) {
-      int inputId = videoCompositor.registerInputSource();
+        GlObjectsProvider glObjectsProvider,
+        int inputIndex) {
+      videoCompositor.registerInputSource(inputIndex);
       DefaultVideoFrameProcessor.Factory.Builder defaultVideoFrameProcessorFactoryBuilder =
           new DefaultVideoFrameProcessor.Factory.Builder()
               .setGlObjectsProvider(glObjectsProvider)
+              .setSdrWorkingColorSpace(DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_LINEAR)
               .setTextureOutput(
                   /* textureOutputListener= */ (outputTextureProducer,
                       outputTexture,
@@ -894,7 +872,7 @@ public final class DefaultVideoCompositorPixelTest {
                     textureBitmapReader.readBitmapUnpremultipliedAlpha(
                         outputTexture, presentationTimeUs);
                     videoCompositor.queueInputTexture(
-                        inputId,
+                        inputIndex,
                         outputTextureProducer,
                         outputTexture,
                         ColorInfo.SRGB_BT709_FULL,
@@ -907,9 +885,8 @@ public final class DefaultVideoCompositorPixelTest {
       return new VideoFrameProcessorTestRunner.Builder()
           .setTestId(testId)
           .setVideoFrameProcessorFactory(defaultVideoFrameProcessorFactoryBuilder.build())
-          .setInputColorInfo(ColorInfo.SRGB_BT709_FULL)
           .setBitmapReader(textureBitmapReader)
-          .setOnEndedListener(() -> videoCompositor.signalEndOfInputSource(inputId));
+          .setOnEndedListener(() -> videoCompositor.signalEndOfInputSource(inputIndex));
     }
   }
 

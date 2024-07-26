@@ -37,7 +37,7 @@ import static androidx.media3.common.util.Util.castNonNull;
 import static androidx.media3.common.util.Util.postOrRun;
 import static androidx.media3.session.MediaUtils.TRANSACTION_SIZE_LIMIT_IN_BYTES;
 import static androidx.media3.session.SessionCommand.COMMAND_CODE_CUSTOM;
-import static androidx.media3.session.SessionResult.RESULT_ERROR_UNKNOWN;
+import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static androidx.media3.session.SessionResult.RESULT_INFO_SKIPPED;
 import static androidx.media3.session.SessionResult.RESULT_SUCCESS;
 
@@ -57,21 +57,12 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ResultReceiver;
-import android.support.v4.media.MediaDescriptionCompat;
-import android.support.v4.media.MediaMetadataCompat;
-import android.support.v4.media.RatingCompat;
-import android.support.v4.media.session.MediaSessionCompat;
-import android.support.v4.media.session.MediaSessionCompat.QueueItem;
-import android.support.v4.media.session.PlaybackStateCompat;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import androidx.annotation.DoNotInline;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.util.ObjectsCompat;
-import androidx.media.MediaSessionManager;
-import androidx.media.MediaSessionManager.RemoteUserInfo;
-import androidx.media.VolumeProviderCompat;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
@@ -92,6 +83,15 @@ import androidx.media3.session.MediaSession.ControllerCb;
 import androidx.media3.session.MediaSession.ControllerInfo;
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition;
 import androidx.media3.session.SessionCommand.CommandCode;
+import androidx.media3.session.legacy.MediaDescriptionCompat;
+import androidx.media3.session.legacy.MediaMetadataCompat;
+import androidx.media3.session.legacy.MediaSessionCompat;
+import androidx.media3.session.legacy.MediaSessionCompat.QueueItem;
+import androidx.media3.session.legacy.MediaSessionManager;
+import androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo;
+import androidx.media3.session.legacy.PlaybackStateCompat;
+import androidx.media3.session.legacy.RatingCompat;
+import androidx.media3.session.legacy.VolumeProviderCompat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -315,7 +315,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   public boolean onMediaButtonEvent(Intent intent) {
     return sessionImpl.onMediaButtonEvent(
         new ControllerInfo(
-            sessionCompat.getCurrentControllerInfo(),
+            checkNotNull(sessionCompat.getCurrentControllerInfo()),
             ControllerInfo.LEGACY_CONTROLLER_VERSION,
             ControllerInfo.LEGACY_CONTROLLER_INTERFACE_VERSION,
             /* trusted= */ false,
@@ -341,7 +341,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         controller ->
             Util.handlePlayPauseButtonAction(
                 sessionImpl.getPlayerWrapper(), sessionImpl.shouldPlayIfSuppressed()),
-        remoteUserInfo);
+        remoteUserInfo,
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -349,11 +350,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_PREPARE,
         controller -> sessionImpl.getPlayerWrapper().prepare(),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
-  public void onPrepareFromMediaId(String mediaId, @Nullable Bundle extras) {
+  public void onPrepareFromMediaId(@Nullable String mediaId, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(
             mediaId, /* mediaUri= */ null, /* searchQuery= */ null, extras),
@@ -361,14 +363,14 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   @Override
-  public void onPrepareFromSearch(String query, @Nullable Bundle extras) {
+  public void onPrepareFromSearch(@Nullable String query, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(/* mediaId= */ null, /* mediaUri= */ null, query, extras),
         /* play= */ false);
   }
 
   @Override
-  public void onPrepareFromUri(Uri mediaUri, @Nullable Bundle extras) {
+  public void onPrepareFromUri(@Nullable Uri mediaUri, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(
             /* mediaId= */ null, mediaUri, /* searchQuery= */ null, extras),
@@ -379,12 +381,15 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   public void onPlay() {
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_PLAY_PAUSE,
-        sessionImpl::handleMediaControllerPlayRequest,
-        sessionCompat.getCurrentControllerInfo());
+        controller ->
+            sessionImpl.handleMediaControllerPlayRequest(
+                controller, /* callOnPlayerInteractionFinished= */ true),
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ false);
   }
 
   @Override
-  public void onPlayFromMediaId(String mediaId, @Nullable Bundle extras) {
+  public void onPlayFromMediaId(@Nullable String mediaId, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(
             mediaId, /* mediaUri= */ null, /* searchQuery= */ null, extras),
@@ -392,14 +397,14 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   @Override
-  public void onPlayFromSearch(String query, @Nullable Bundle extras) {
+  public void onPlayFromSearch(@Nullable String query, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(/* mediaId= */ null, /* mediaUri= */ null, query, extras),
         /* play= */ true);
   }
 
   @Override
-  public void onPlayFromUri(Uri mediaUri, @Nullable Bundle extras) {
+  public void onPlayFromUri(@Nullable Uri mediaUri, @Nullable Bundle extras) {
     handleMediaRequest(
         createMediaItemForMediaRequest(
             /* mediaId= */ null, mediaUri, /* searchQuery= */ null, extras),
@@ -411,7 +416,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_PLAY_PAUSE,
         controller -> Util.handlePauseButtonAction(sessionImpl.getPlayerWrapper()),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -419,7 +425,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_STOP,
         controller -> sessionImpl.getPlayerWrapper().stop(),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -427,7 +434,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM,
         controller -> sessionImpl.getPlayerWrapper().seekTo(pos),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -436,12 +444,14 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       dispatchSessionTaskWithPlayerCommand(
           COMMAND_SEEK_TO_NEXT,
           controller -> sessionImpl.getPlayerWrapper().seekToNext(),
-          sessionCompat.getCurrentControllerInfo());
+          sessionCompat.getCurrentControllerInfo(),
+          /* callOnPlayerInteractionFinished= */ true);
     } else {
       dispatchSessionTaskWithPlayerCommand(
           COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
           controller -> sessionImpl.getPlayerWrapper().seekToNextMediaItem(),
-          sessionCompat.getCurrentControllerInfo());
+          sessionCompat.getCurrentControllerInfo(),
+          /* callOnPlayerInteractionFinished= */ true);
     }
   }
 
@@ -451,25 +461,34 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       dispatchSessionTaskWithPlayerCommand(
           COMMAND_SEEK_TO_PREVIOUS,
           controller -> sessionImpl.getPlayerWrapper().seekToPrevious(),
-          sessionCompat.getCurrentControllerInfo());
+          sessionCompat.getCurrentControllerInfo(),
+          /* callOnPlayerInteractionFinished= */ true);
     } else {
       dispatchSessionTaskWithPlayerCommand(
           COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
           controller -> sessionImpl.getPlayerWrapper().seekToPreviousMediaItem(),
-          sessionCompat.getCurrentControllerInfo());
+          sessionCompat.getCurrentControllerInfo(),
+          /* callOnPlayerInteractionFinished= */ true);
     }
   }
 
   @Override
   public void onSetPlaybackSpeed(float speed) {
+    if (!(speed > 0f)) {
+      return;
+    }
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SET_SPEED_AND_PITCH,
         controller -> sessionImpl.getPlayerWrapper().setPlaybackSpeed(speed),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
   public void onSkipToQueueItem(long queueId) {
+    if (queueId < 0) {
+      return;
+    }
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SEEK_TO_MEDIA_ITEM,
         controller -> {
@@ -478,7 +497,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
           // see: {@link MediaUtils#convertToQueueItem}.
           playerWrapper.seekToDefaultPosition((int) queueId);
         },
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -486,7 +506,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SEEK_FORWARD,
         controller -> sessionImpl.getPlayerWrapper().seekForward(),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -494,17 +515,18 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     dispatchSessionTaskWithPlayerCommand(
         COMMAND_SEEK_BACK,
         controller -> sessionImpl.getPlayerWrapper().seekBack(),
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
-  public void onSetRating(RatingCompat ratingCompat) {
+  public void onSetRating(@Nullable RatingCompat ratingCompat) {
     onSetRating(ratingCompat, null);
   }
 
   @Override
-  public void onSetRating(RatingCompat ratingCompat, @Nullable Bundle unusedExtras) {
-    @Nullable Rating rating = MediaUtils.convertToRating(ratingCompat);
+  public void onSetRating(@Nullable RatingCompat ratingCompat, @Nullable Bundle unusedExtras) {
+    @Nullable Rating rating = LegacyConversions.convertToRating(ratingCompat);
     if (rating == null) {
       Log.w(TAG, "Ignoring invalid RatingCompat " + ratingCompat);
       return;
@@ -535,8 +557,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         controller ->
             sessionImpl
                 .getPlayerWrapper()
-                .setRepeatMode(MediaUtils.convertToRepeatMode(playbackStateCompatRepeatMode)),
-        sessionCompat.getCurrentControllerInfo());
+                .setRepeatMode(
+                    LegacyConversions.convertToRepeatMode(playbackStateCompatRepeatMode)),
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -546,8 +570,9 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         controller ->
             sessionImpl
                 .getPlayerWrapper()
-                .setShuffleModeEnabled(MediaUtils.convertToShuffleModeEnabled(shuffleMode)),
-        sessionCompat.getCurrentControllerInfo());
+                .setShuffleModeEnabled(LegacyConversions.convertToShuffleModeEnabled(shuffleMode)),
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   @Override
@@ -575,7 +600,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
           }
           PlayerWrapper player = sessionImpl.getPlayerWrapper();
           if (!player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)) {
-            Log.w(TAG, "Can't remove item by id without availabe COMMAND_GET_TIMELINE");
+            Log.w(TAG, "Can't remove item by ID without COMMAND_GET_TIMELINE being available");
             return;
           }
           Timeline timeline = player.getCurrentTimeline();
@@ -588,21 +613,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             }
           }
         },
-        sessionCompat.getCurrentControllerInfo());
-  }
-
-  @Override
-  public void onRemoveQueueItemAt(int index) {
-    dispatchSessionTaskWithPlayerCommand(
-        COMMAND_CHANGE_MEDIA_ITEMS,
-        controller -> {
-          if (index < 0) {
-            Log.w(TAG, "onRemoveQueueItem(): index shouldn't be negative");
-            return;
-          }
-          sessionImpl.getPlayerWrapper().removeMediaItem(index);
-        },
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ true);
   }
 
   public ControllerCb getControllerLegacyCbForBroadcast() {
@@ -618,7 +630,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   private void dispatchSessionTaskWithPlayerCommand(
-      @Player.Command int command, SessionTask task, @Nullable RemoteUserInfo remoteUserInfo) {
+      @Player.Command int command,
+      SessionTask task,
+      @Nullable RemoteUserInfo remoteUserInfo,
+      boolean callOnPlayerInteractionFinished) {
     if (sessionImpl.isReleased()) {
       return;
     }
@@ -680,6 +695,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                     }
                   })
               .run();
+          if (callOnPlayerInteractionFinished) {
+            sessionImpl.onPlayerInteractionFinishedOnHandler(
+                controller, new Player.Commands.Builder().add(command).build());
+          }
         });
   }
 
@@ -836,6 +855,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                             if (play) {
                               player.playIfCommandAvailable();
                             }
+                            sessionImpl.onPlayerInteractionFinishedOnHandler(
+                                controller,
+                                new Player.Commands.Builder()
+                                    .addAll(COMMAND_SET_MEDIA_ITEM, COMMAND_PREPARE)
+                                    .addIf(COMMAND_PLAY_PAUSE, play)
+                                    .build());
                           }));
                 }
 
@@ -846,11 +871,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
               },
               MoreExecutors.directExecutor());
         },
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ false);
   }
 
   private void handleOnAddQueueItem(@Nullable MediaDescriptionCompat description, int index) {
-    if (description == null) {
+    if (description == null || (index != C.INDEX_UNSET && index < 0)) {
       return;
     }
     dispatchSessionTaskWithPlayerCommand(
@@ -861,7 +887,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             Log.w(TAG, "onAddQueueItem(): Media ID shouldn't be empty");
             return;
           }
-          MediaItem mediaItem = MediaUtils.convertToMediaItem(description);
+          MediaItem mediaItem = LegacyConversions.convertToMediaItem(description);
           ListenableFuture<List<MediaItem>> mediaItemsFuture =
               sessionImpl.onAddMediaItemsOnHandler(controller, ImmutableList.of(mediaItem));
           Futures.addCallback(
@@ -879,6 +905,11 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                             } else {
                               sessionImpl.getPlayerWrapper().addMediaItems(index, mediaItems);
                             }
+                            sessionImpl.onPlayerInteractionFinishedOnHandler(
+                                controller,
+                                new Player.Commands.Builder()
+                                    .add(COMMAND_CHANGE_MEDIA_ITEMS)
+                                    .build());
                           }));
                 }
 
@@ -889,7 +920,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
               },
               MoreExecutors.directExecutor());
         },
-        sessionCompat.getCurrentControllerInfo());
+        sessionCompat.getCurrentControllerInfo(),
+        /* callOnPlayerInteractionFinished= */ false);
   }
 
   private static void sendCustomCommandResultWhenReady(
@@ -904,7 +936,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             result = new SessionResult(RESULT_INFO_SKIPPED);
           } catch (ExecutionException | InterruptedException e) {
             Log.w(TAG, "Custom command failed", e);
-            result = new SessionResult(RESULT_ERROR_UNKNOWN);
+            result = new SessionResult(ERROR_UNKNOWN);
           }
           receiver.send(result.resultCode, result.extras);
         },
@@ -1081,6 +1113,26 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     @Override
     public void onSessionExtrasChanged(int seq, Bundle sessionExtras) {
       sessionCompat.setExtras(sessionExtras);
+      sessionImpl.getPlayerWrapper().setLegacyExtras(sessionExtras);
+      sessionCompat.setPlaybackState(sessionImpl.getPlayerWrapper().createPlaybackStateCompat());
+    }
+
+    @Override
+    public void onSessionActivityChanged(int seq, PendingIntent sessionActivity) {
+      sessionCompat.setSessionActivity(sessionActivity);
+    }
+
+    @Override
+    public void onError(int seq, SessionError sessionError) {
+      PlayerWrapper playerWrapper = sessionImpl.getPlayerWrapper();
+      playerWrapper.setLegacyError(
+          /* isFatal= */ false,
+          LegacyConversions.convertToLegacyErrorCode(sessionError.code),
+          sessionError.message,
+          sessionError.extras);
+      sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat());
+      playerWrapper.clearLegacyErrorStatus();
+      sessionCompat.setPlaybackState(playerWrapper.createPlaybackStateCompat());
     }
 
     @Override
@@ -1143,7 +1195,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         sessionCompat.setRatingType(RatingCompat.RATING_NONE);
       } else {
         sessionCompat.setRatingType(
-            MediaUtils.getRatingCompatStyle(mediaItem.mediaMetadata.userRating));
+            LegacyConversions.getRatingCompatStyle(mediaItem.mediaMetadata.userRating));
       }
       updateLegacySessionPlaybackState(sessionImpl.getPlayerWrapper());
     }
@@ -1167,7 +1219,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         setQueue(sessionCompat, /* queue= */ null);
         return;
       }
-      List<MediaItem> mediaItemList = MediaUtils.convertToMediaItemList(timeline);
+      List<MediaItem> mediaItemList = LegacyConversions.convertToMediaItemList(timeline);
       List<@NullableType ListenableFuture<Bitmap>> bitmapFutures = new ArrayList<>();
       final AtomicInteger resultCount = new AtomicInteger(0);
       Runnable handleBitmapFuturesTask =
@@ -1209,7 +1261,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             Log.d(TAG, "Failed to get bitmap", e);
           }
         }
-        queueItemList.add(MediaUtils.convertToQueueItem(mediaItems.get(i), i, bitmap));
+        queueItemList.add(LegacyConversions.convertToQueueItem(mediaItems.get(i), i, bitmap));
       }
 
       if (Util.SDK_INT < 21) {
@@ -1245,12 +1297,13 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     public void onShuffleModeEnabledChanged(int seq, boolean shuffleModeEnabled)
         throws RemoteException {
       sessionCompat.setShuffleMode(
-          MediaUtils.convertToPlaybackStateCompatShuffleMode(shuffleModeEnabled));
+          LegacyConversions.convertToPlaybackStateCompatShuffleMode(shuffleModeEnabled));
     }
 
     @Override
     public void onRepeatModeChanged(int seq, @RepeatMode int repeatMode) throws RemoteException {
-      sessionCompat.setRepeatMode(MediaUtils.convertToPlaybackStateCompatRepeatMode(repeatMode));
+      sessionCompat.setRepeatMode(
+          LegacyConversions.convertToPlaybackStateCompatRepeatMode(repeatMode));
     }
 
     @Override
@@ -1258,7 +1311,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       @DeviceInfo.PlaybackType
       int playbackType = sessionImpl.getPlayerWrapper().getDeviceInfo().playbackType;
       if (playbackType == DeviceInfo.PLAYBACK_TYPE_LOCAL) {
-        int legacyStreamType = MediaUtils.getLegacyStreamType(audioAttributes);
+        int legacyStreamType = LegacyConversions.getLegacyStreamType(audioAttributes);
         sessionCompat.setPlaybackToLocal(legacyStreamType);
       }
     }
@@ -1269,7 +1322,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       volumeProviderCompat = player.createVolumeProviderCompat();
       if (volumeProviderCompat == null) {
         int streamType =
-            MediaUtils.getLegacyStreamType(player.getAudioAttributesWithCommandCheck());
+            LegacyConversions.getLegacyStreamType(player.getAudioAttributesWithCommandCheck());
         sessionCompat.setPlaybackToLocal(streamType);
       } else {
         sessionCompat.setPlaybackToRemote(volumeProviderCompat);
@@ -1298,7 +1351,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       PlayerWrapper player = sessionImpl.getPlayerWrapper();
       @Nullable MediaItem currentMediaItem = player.getCurrentMediaItemWithCommandCheck();
       MediaMetadata newMediaMetadata = player.getMediaMetadataWithCommandCheck();
-      long newDurationMs = player.getDurationWithCommandCheck();
+      long newDurationMs =
+          player.isCurrentMediaItemLiveWithCommandCheck()
+              ? C.TIME_UNSET
+              : player.getDurationWithCommandCheck();
       String newMediaId =
           currentMediaItem != null ? currentMediaItem.mediaId : MediaItem.DEFAULT_MEDIA_ID;
       @Nullable
@@ -1340,7 +1396,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
                   }
                   setMetadata(
                       sessionCompat,
-                      MediaUtils.convertToMediaMetadataCompat(
+                      LegacyConversions.convertToMediaMetadataCompat(
                           newMediaMetadata,
                           newMediaId,
                           newMediaUri,
@@ -1365,7 +1421,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       }
       setMetadata(
           sessionCompat,
-          MediaUtils.convertToMediaMetadataCompat(
+          LegacyConversions.convertToMediaMetadataCompat(
               newMediaMetadata, newMediaId, newMediaUri, newDurationMs, artworkBitmap));
     }
   }
@@ -1445,7 +1501,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     @DoNotInline
     public static void setMediaButtonBroadcastReceiver(
         MediaSessionCompat mediaSessionCompat, ComponentName broadcastReceiver) {
-      ((android.media.session.MediaSession) mediaSessionCompat.getMediaSession())
+      ((android.media.session.MediaSession) checkNotNull(mediaSessionCompat.getMediaSession()))
           .setMediaButtonBroadcastReceiver(broadcastReceiver);
     }
   }

@@ -15,28 +15,25 @@
  */
 package androidx.media3.session;
 
-import static android.support.v4.media.MediaBrowserCompat.EXTRA_PAGE;
-import static android.support.v4.media.MediaBrowserCompat.EXTRA_PAGE_SIZE;
-import static androidx.media.utils.MediaConstants.BROWSER_SERVICE_EXTRAS_KEY_SEARCH_SUPPORTED;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
 import static androidx.media3.common.util.Util.postOrRun;
 import static androidx.media3.session.LibraryResult.RESULT_SUCCESS;
 import static androidx.media3.session.MediaUtils.TRANSACTION_SIZE_LIMIT_IN_BYTES;
+import static androidx.media3.session.legacy.MediaBrowserCompat.EXTRA_PAGE;
+import static androidx.media3.session.legacy.MediaBrowserCompat.EXTRA_PAGE_SIZE;
+import static androidx.media3.session.legacy.MediaConstants.BROWSER_SERVICE_EXTRAS_KEY_SEARCH_SUPPORTED;
 
 import android.annotation.SuppressLint;
 import android.graphics.Bitmap;
 import android.os.BadParcelableException;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.support.v4.media.MediaBrowserCompat;
 import android.text.TextUtils;
 import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
 import androidx.core.util.ObjectsCompat;
-import androidx.media.MediaBrowserServiceCompat;
-import androidx.media.MediaSessionManager.RemoteUserInfo;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.util.ConditionVariable;
@@ -46,6 +43,9 @@ import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaLibraryService.LibraryParams;
 import androidx.media3.session.MediaSession.ControllerCb;
 import androidx.media3.session.MediaSession.ControllerInfo;
+import androidx.media3.session.legacy.MediaBrowserCompat;
+import androidx.media3.session.legacy.MediaBrowserServiceCompat;
+import androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
@@ -82,7 +82,7 @@ import java.util.concurrent.atomic.AtomicReference;
   @Override
   @Nullable
   public BrowserRoot onGetRoot(
-      String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
+      @Nullable String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
     @Nullable BrowserRoot browserRoot = super.onGetRoot(clientPackageName, clientUid, rootHints);
     if (browserRoot == null) {
       return null;
@@ -98,7 +98,7 @@ import java.util.concurrent.atomic.AtomicReference;
     }
     @Nullable
     LibraryParams params =
-        MediaUtils.convertToLibraryParams(librarySessionImpl.getContext(), rootHints);
+        LegacyConversions.convertToLibraryParams(librarySessionImpl.getContext(), rootHints);
     AtomicReference<ListenableFuture<LibraryResult<MediaItem>>> futureReference =
         new AtomicReference<>();
     ConditionVariable haveFuture = new ConditionVariable();
@@ -118,7 +118,9 @@ import java.util.concurrent.atomic.AtomicReference;
     if (result != null && result.resultCode == RESULT_SUCCESS && result.value != null) {
       @Nullable
       Bundle extras =
-          result.params != null ? MediaUtils.convertToRootHints(result.params) : new Bundle();
+          result.params != null
+              ? LegacyConversions.convertToRootHints(result.params)
+              : new Bundle();
       boolean isSearchSessionCommandAvailable =
           getConnectedControllersManager()
               .isSessionCommandAvailable(controller, SessionCommand.COMMAND_CODE_LIBRARY_SEARCH);
@@ -138,7 +140,7 @@ import java.util.concurrent.atomic.AtomicReference;
   //                    content.
   @SuppressLint("RestrictedApi")
   @Override
-  public void onSubscribe(String id, Bundle option) {
+  public void onSubscribe(@Nullable String id, @Nullable Bundle option) {
     @Nullable ControllerInfo controller = getCurrentController();
     if (controller == null) {
       return;
@@ -157,14 +159,14 @@ import java.util.concurrent.atomic.AtomicReference;
           }
           @Nullable
           LibraryParams params =
-              MediaUtils.convertToLibraryParams(librarySessionImpl.getContext(), option);
+              LegacyConversions.convertToLibraryParams(librarySessionImpl.getContext(), option);
           ignoreFuture(librarySessionImpl.onSubscribeOnHandler(controller, id, params));
         });
   }
 
   @SuppressLint("RestrictedApi")
   @Override
-  public void onUnsubscribe(String id) {
+  public void onUnsubscribe(@Nullable String id) {
     @Nullable ControllerInfo controller = getCurrentController();
     if (controller == null) {
       return;
@@ -186,13 +188,14 @@ import java.util.concurrent.atomic.AtomicReference;
   }
 
   @Override
-  public void onLoadChildren(String parentId, Result<List<MediaBrowserCompat.MediaItem>> result) {
+  public void onLoadChildren(
+      @Nullable String parentId, Result<List<MediaBrowserCompat.MediaItem>> result) {
     onLoadChildren(parentId, result, /* options= */ null);
   }
 
   @Override
   public void onLoadChildren(
-      String parentId,
+      @Nullable String parentId,
       Result<List<MediaBrowserCompat.MediaItem>> result,
       @Nullable Bundle options) {
     @Nullable ControllerInfo controller = getCurrentController();
@@ -224,7 +227,8 @@ import java.util.concurrent.atomic.AtomicReference;
                 // Requesting the list of children through pagination.
                 @Nullable
                 LibraryParams params =
-                    MediaUtils.convertToLibraryParams(librarySessionImpl.getContext(), options);
+                    LegacyConversions.convertToLibraryParams(
+                        librarySessionImpl.getContext(), options);
                 ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> future =
                     librarySessionImpl.onGetChildrenOnHandler(
                         controller, parentId, page, pageSize, params);
@@ -315,7 +319,7 @@ import java.util.concurrent.atomic.AtomicReference;
           cb.registerSearchRequest(controller, query, extras, result);
           @Nullable
           LibraryParams params =
-              MediaUtils.convertToLibraryParams(librarySessionImpl.getContext(), extras);
+              LegacyConversions.convertToLibraryParams(librarySessionImpl.getContext(), extras);
           ignoreFuture(librarySessionImpl.onSearchOnHandler(controller, query, params));
           // Actual search result will be sent by notifySearchResultChanged().
         });
@@ -483,7 +487,7 @@ import java.util.concurrent.atomic.AtomicReference;
           Log.d(TAG, "Failed to get bitmap", e);
         }
       }
-      outputMediaItems.add(MediaUtils.convertToBrowserItem(mediaItems.get(i), bitmap));
+      outputMediaItems.add(LegacyConversions.convertToBrowserItem(mediaItems.get(i), bitmap));
     }
     outputFuture.set(outputMediaItems);
   }
@@ -510,7 +514,8 @@ import java.util.concurrent.atomic.AtomicReference;
       MediaItem mediaItem = result.value;
       MediaMetadata metadata = mediaItem.mediaMetadata;
       if (metadata.artworkData == null) {
-        outputFuture.set(MediaUtils.convertToBrowserItem(mediaItem, /* artworkBitmap= */ null));
+        outputFuture.set(
+            LegacyConversions.convertToBrowserItem(mediaItem, /* artworkBitmap= */ null));
         return outputFuture;
       }
 
@@ -531,7 +536,7 @@ import java.util.concurrent.atomic.AtomicReference;
             } catch (CancellationException | ExecutionException e) {
               Log.d(TAG, "failed to get bitmap", e);
             }
-            outputFuture.set(MediaUtils.convertToBrowserItem(mediaItem, bitmap));
+            outputFuture.set(LegacyConversions.convertToBrowserItem(mediaItem, bitmap));
           },
           MoreExecutors.directExecutor());
       return outputFuture;
@@ -634,7 +639,7 @@ import java.util.concurrent.atomic.AtomicReference;
               }
               @Nullable
               LibraryParams libraryParams =
-                  MediaUtils.convertToLibraryParams(
+                  LegacyConversions.convertToLibraryParams(
                       librarySessionImpl.getContext(), request.extras);
               ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> future =
                   librarySessionImpl.onGetSearchResultOnHandler(

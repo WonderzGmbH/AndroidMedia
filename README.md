@@ -123,9 +123,7 @@ Next, add the following to your project's `settings.gradle.kts` file, replacing
 `path/to/media` with the path to your local copy:
 
 ```kotlin
-gradle.extra.apply {
-  set("androidxMediaModulePrefix", "media-")
-}
+(gradle as ExtensionAware).extra["androidxMediaModulePrefix"] = "media3-"
 apply(from = file("path/to/media/core_settings.gradle"))
 ```
 
@@ -152,6 +150,26 @@ Or in Gradle Groovy DSL `build.gradle`:
 implementation project(':media-lib-exoplayer')
 implementation project(':media-lib-exoplayer-dash')
 implementation project(':media-lib-ui')
+```
+
+#### MIDI module
+
+By default the [MIDI module](libraries/decoder_midi) is disabled as a local
+dependency, because it requires additional Maven repository config. If you want
+to use it as a local dependency, please configure the JitPack repository as
+[described in the module README](libraries/decoder_midi/README.md#getting-the-module),
+and then enable building the module in your `settings.gradle.kts` file:
+
+```kotlin
+gradle.extra.apply {
+  set("androidxMediaEnableMidiModule", true)
+}
+```
+
+Or in Gradle Groovy DSL `settings.gradle`:
+
+```groovy
+gradle.ext.androidxMediaEnableMidiModule = true
 ```
 
 ## Developing AndroidX Media

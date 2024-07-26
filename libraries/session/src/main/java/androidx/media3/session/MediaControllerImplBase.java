@@ -23,6 +23,9 @@ import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.usToMs;
 import static androidx.media3.session.MediaUtils.calculateBufferedPercentage;
 import static androidx.media3.session.MediaUtils.mergePlayerInfo;
+import static androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED;
+import static androidx.media3.session.SessionError.ERROR_SESSION_DISCONNECTED;
+import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -41,7 +44,6 @@ import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
-import android.support.v4.media.MediaBrowserCompat;
 import android.util.Pair;
 import android.view.Surface;
 import android.view.SurfaceHolder;
@@ -73,7 +75,7 @@ import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
-import androidx.media3.common.util.BundleableUtil;
+import androidx.media3.common.util.BundleCollectionUtil;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ListenerSet;
 import androidx.media3.common.util.Log;
@@ -81,6 +83,7 @@ import androidx.media3.common.util.Size;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaController.MediaControllerImpl;
 import androidx.media3.session.PlayerInfo.BundlingExclusions;
+import androidx.media3.session.legacy.MediaBrowserCompat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -120,7 +123,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   private boolean released;
   private PlayerInfo playerInfo;
   @Nullable private PendingIntent sessionActivity;
-  private ImmutableList<CommandButton> customLayout;
+  private ImmutableList<CommandButton> customLayoutOriginal;
+  private ImmutableList<CommandButton> customLayoutWithUnavailableButtonsDisabled;
   private SessionCommands sessionCommands;
   private Commands playerCommandsFromSession;
   private Commands playerCommandsFromPlayer;
@@ -134,6 +138,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   private long lastSetPlayWhenReadyCalledTimeMs;
   @Nullable private PlayerInfo pendingPlayerInfo;
   @Nullable private BundlingExclusions pendingBundlingExclusions;
+  private Bundle sessionExtras;
 
   public MediaControllerImplBase(
       Context context,
@@ -145,7 +150,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     playerInfo = PlayerInfo.DEFAULT;
     surfaceSize = Size.UNKNOWN;
     sessionCommands = SessionCommands.EMPTY;
-    customLayout = ImmutableList.of();
+    customLayoutOriginal = ImmutableList.of();
+    customLayoutWithUnavailableButtonsDisabled = ImmutableList.of();
     playerCommandsFromSession = Commands.EMPTY;
     playerCommandsFromPlayer = Commands.EMPTY;
     intersectedPlayerCommands =
@@ -173,6 +179,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 .getInstance()
                 .runOnApplicationLooper(MediaControllerImplBase.this.getInstance()::release);
     surfaceCallback = new SurfaceCallback();
+    sessionExtras = Bundle.EMPTY;
 
     serviceConnection =
         (this.token.getType() == SessionToken.TYPE_SESSION)
@@ -310,11 +317,11 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   }
 
   private void dispatchRemoteSessionTaskWithPlayerCommandAndWaitForFuture(RemoteSessionTask task) {
-    // Do not send a flush command queue message as we are actively waiting for task.
+    flushCommandQueueHandler.sendFlushCommandQueueMessage();
     ListenableFuture<SessionResult> future =
         dispatchRemoteSessionTask(iSession, task, /* addToPendingMaskingOperations= */ true);
     try {
-      MediaUtils.getFutureResult(future, /* timeoutMs= */ 3_000);
+      LegacyConversions.getFutureResult(future, /* timeoutMs= */ 3_000);
     } catch (ExecutionException e) {
       // Never happens because future.setException will not be called.
       throw new IllegalStateException(e);
@@ -323,8 +330,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         int sequenceNumber =
             ((SequencedFutureManager.SequencedFuture<SessionResult>) future).getSequenceNumber();
         pendingMaskingSequencedFutureNumbers.remove(sequenceNumber);
-        sequencedFutureManager.setFutureResult(
-            sequenceNumber, new SessionResult(SessionResult.RESULT_ERROR_UNKNOWN));
+        sequencedFutureManager.setFutureResult(sequenceNumber, new SessionResult(ERROR_UNKNOWN));
       }
       Log.w(TAG, "Synchronous command takes too long on the session side.", e);
       // TODO(b/188888693): Let developers know the failure in their code.
@@ -373,15 +379,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         Log.w(TAG, "Cannot connect to the service or the session is gone", e);
         pendingMaskingSequencedFutureNumbers.remove(sequenceNumber);
         sequencedFutureManager.setFutureResult(
-            sequenceNumber, new SessionResult(SessionResult.RESULT_ERROR_SESSION_DISCONNECTED));
+            sequenceNumber, new SessionResult(ERROR_SESSION_DISCONNECTED));
       }
       return result;
     } else {
       // Don't create Future with SequencedFutureManager.
       // Otherwise session would receive discontinued sequence number, and it would make
       // future work item 'keeping call sequence when session execute commands' impossible.
-      return Futures.immediateFuture(
-          new SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED));
+      return Futures.immediateFuture(new SessionResult(ERROR_PERMISSION_DENIED));
     }
   }
 
@@ -724,7 +729,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 
   @Override
   public ImmutableList<CommandButton> getCustomLayout() {
-    return customLayout;
+    return customLayoutWithUnavailableButtonsDisabled;
+  }
+
+  @Override
+  public Bundle getSessionExtras() {
+    return sessionExtras;
   }
 
   @Override
@@ -801,7 +811,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 new BundleListRetriever(
-                    BundleableUtil.toBundleList(
+                    BundleCollectionUtil.toBundleList(
                         mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
 
     setMediaItemsInternal(
@@ -823,7 +833,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 new BundleListRetriever(
-                    BundleableUtil.toBundleList(
+                    BundleCollectionUtil.toBundleList(
                         mediaItems, MediaItem::toBundleIncludeLocalConfiguration)),
                 resetPosition));
 
@@ -846,7 +856,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 new BundleListRetriever(
-                    BundleableUtil.toBundleList(
+                    BundleCollectionUtil.toBundleList(
                         mediaItems, MediaItem::toBundleIncludeLocalConfiguration)),
                 startIndex,
                 startPositionMs));
@@ -921,7 +931,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 controllerStub,
                 seq,
                 new BundleListRetriever(
-                    BundleableUtil.toBundleList(
+                    BundleCollectionUtil.toBundleList(
                         mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
 
     addMediaItemsInternal(getCurrentTimeline().getWindowCount(), mediaItems);
@@ -941,7 +951,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 seq,
                 index,
                 new BundleListRetriever(
-                    BundleableUtil.toBundleList(
+                    BundleCollectionUtil.toBundleList(
                         mediaItems, MediaItem::toBundleIncludeLocalConfiguration))));
 
     addMediaItemsInternal(index, mediaItems);
@@ -963,7 +973,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     }
     // Add media items to the end of the timeline if the index exceeds the window count.
     index = min(index, playerInfo.timeline.getWindowCount());
-    PlayerInfo newPlayerInfo = maskPlaybackInfoForAddedItems(playerInfo, index, mediaItems);
+    PlayerInfo newPlayerInfo =
+        maskPlayerInfoForAddedItems(
+            playerInfo, index, mediaItems, getCurrentPosition(), getContentPosition());
     @Nullable
     @Player.MediaItemTransitionReason
     Integer mediaItemTransitionReason =
@@ -976,8 +988,23 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         /* mediaItemTransitionReason= */ mediaItemTransitionReason);
   }
 
-  private static PlayerInfo maskPlaybackInfoForAddedItems(
-      PlayerInfo playerInfo, int index, List<MediaItem> mediaItems) {
+  /**
+   * Returns a masking {@link PlayerInfo} for the added {@linkplain MediaItem media items} with the
+   * provided information.
+   *
+   * @param playerInfo The {@link PlayerInfo} that the new masking {@link PlayerInfo} is based on.
+   * @param index The index at which the {@linkplain MediaItem media items} are added.
+   * @param mediaItems The {@linkplain MediaItem media items} added.
+   * @param currentPositionMs The current position in milliseconds.
+   * @param currentContentPositionMs The current content position in milliseconds.
+   * @return A masking {@link PlayerInfo}.
+   */
+  private static PlayerInfo maskPlayerInfoForAddedItems(
+      PlayerInfo playerInfo,
+      int index,
+      List<MediaItem> mediaItems,
+      long currentPositionMs,
+      long currentContentPositionMs) {
     Timeline oldTimeline = playerInfo.timeline;
     List<Window> newWindows = new ArrayList<>();
     List<Period> newPeriods = new ArrayList<>();
@@ -1010,6 +1037,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         newTimeline,
         newMediaItemIndex,
         newPeriodIndex,
+        currentPositionMs,
+        currentContentPositionMs,
         Player.DISCONTINUITY_REASON_INTERNAL);
   }
 
@@ -1059,7 +1088,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     }
     boolean wasCurrentItemRemoved =
         getCurrentMediaItemIndex() >= fromIndex && getCurrentMediaItemIndex() < toIndex;
-    PlayerInfo newPlayerInfo = maskPlayerInfoForRemovedItems(playerInfo, fromIndex, toIndex);
+    PlayerInfo newPlayerInfo =
+        maskPlayerInfoForRemovedItems(
+            playerInfo,
+            fromIndex,
+            toIndex,
+            /* isReplacingItems= */ false,
+            getCurrentPosition(),
+            getContentPosition());
     boolean didMediaItemTransitionHappen =
         playerInfo.sessionPositionInfo.positionInfo.mediaItemIndex >= fromIndex
             && playerInfo.sessionPositionInfo.positionInfo.mediaItemIndex < toIndex;
@@ -1075,8 +1111,30 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             : null);
   }
 
+  /**
+   * Returns a masking {@link PlayerInfo} for the removed {@linkplain MediaItem media items} with
+   * the provided information.
+   *
+   * @param playerInfo The {@link PlayerInfo} that the new masking {@link PlayerInfo} is based on.
+   * @param fromIndex The index at which to start removing media items (inclusive).
+   * @param toIndex The index of the first item to be kept (exclusive).
+   * @param isReplacingItems A boolean indicating whether the media items are removed due to
+   *     replacing.
+   * @param currentPositionMs The current position in milliseconds. This value will be used in the
+   *     new masking {@link PlayerInfo} if the removal of the media items doesn't affect the current
+   *     playback position.
+   * @param currentContentPositionMs The current content position in milliseconds. This value will
+   *     be used in the new masking {@link PlayerInfo} if the removal of the media items doesn't
+   *     affect the current playback position.
+   * @return A masking {@link PlayerInfo}.
+   */
   private static PlayerInfo maskPlayerInfoForRemovedItems(
-      PlayerInfo playerInfo, int fromIndex, int toIndex) {
+      PlayerInfo playerInfo,
+      int fromIndex,
+      int toIndex,
+      boolean isReplacingItems,
+      long currentPositionMs,
+      long currentContentPositionMs) {
     Timeline oldTimeline = playerInfo.timeline;
     List<Window> newWindows = new ArrayList<>();
     List<Period> newPeriods = new ArrayList<>();
@@ -1134,6 +1192,16 @@ import org.checkerframework.checker.nullness.qual.NonNull;
                 newPositionInfo,
                 SessionPositionInfo.DEFAULT,
                 Player.DISCONTINUITY_REASON_REMOVE);
+      } else if (isReplacingItems) {
+        newPlayerInfo =
+            maskTimelineAndPositionInfo(
+                playerInfo,
+                newTimeline,
+                newMediaItemIndex,
+                newPeriodIndex,
+                currentPositionMs,
+                currentContentPositionMs,
+                Player.DISCONTINUITY_REASON_REMOVE);
       } else {
         Window newWindow = newTimeline.getWindow(newMediaItemIndex, new Window());
         long defaultPositionMs = newWindow.getDefaultPositionMs();
@@ -1175,6 +1243,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
               newTimeline,
               newMediaItemIndex,
               newPeriodIndex,
+              currentPositionMs,
+              currentContentPositionMs,
               Player.DISCONTINUITY_REASON_REMOVE);
     }
 
@@ -1254,7 +1324,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
         (iSession, seq) -> {
           IBinder mediaItemsBundleBinder =
               new BundleListRetriever(
-                  BundleableUtil.toBundleList(
+                  BundleCollectionUtil.toBundleList(
                       mediaItems, MediaItem::toBundleIncludeLocalConfiguration));
           if (checkNotNull(connectedToken).getInterfaceVersion() >= 2) {
             iSession.replaceMediaItems(
@@ -1283,8 +1353,17 @@ import org.checkerframework.checker.nullness.qual.NonNull;
       return;
     }
     toIndex = min(toIndex, playlistSize);
-    PlayerInfo newPlayerInfo = maskPlaybackInfoForAddedItems(playerInfo, toIndex, mediaItems);
-    newPlayerInfo = maskPlayerInfoForRemovedItems(newPlayerInfo, fromIndex, toIndex);
+    PlayerInfo newPlayerInfo =
+        maskPlayerInfoForAddedItems(
+            playerInfo, toIndex, mediaItems, getCurrentPosition(), getContentPosition());
+    newPlayerInfo =
+        maskPlayerInfoForRemovedItems(
+            newPlayerInfo,
+            fromIndex,
+            toIndex,
+            /* isReplacingItems= */ true,
+            getCurrentPosition(),
+            getContentPosition());
     boolean wasCurrentItemReplaced =
         playerInfo.sessionPositionInfo.positionInfo.mediaItemIndex >= fromIndex
             && playerInfo.sessionPositionInfo.positionInfo.mediaItemIndex < toIndex;
@@ -1518,6 +1597,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   /**
    * @deprecated Use {@link #setDeviceVolume(int, int)} instead.
    */
+  @SuppressWarnings("deprecation") // Checking deprecated command codes
   @Deprecated
   @Override
   public void setDeviceVolume(int volume) {
@@ -1566,6 +1646,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   /**
    * @deprecated Use {@link #increaseDeviceVolume(int)} instead.
    */
+  @SuppressWarnings("deprecation") // Checking deprecated command codes
   @Deprecated
   @Override
   public void increaseDeviceVolume() {
@@ -1610,6 +1691,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   /**
    * @deprecated Use {@link #decreaseDeviceVolume(int)} instead.
    */
+  @SuppressWarnings("deprecation") // Checking deprecated command codes
   @Deprecated
   @Override
   public void decreaseDeviceVolume() {
@@ -1652,6 +1734,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
   /**
    * @deprecated Use {@link #setDeviceMuted(boolean, int)} instead.
    */
+  @SuppressWarnings("deprecation") // Checking deprecated command codes
   @Deprecated
   @Override
   public void setDeviceMuted(boolean muted) {
@@ -1922,6 +2005,11 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     return null;
   }
 
+  @Override
+  public IMediaController getBinder() {
+    return controllerStub;
+  }
+
   private static Timeline createMaskingTimeline(List<Window> windows, List<Period> periods) {
     return new RemotableTimeline(
         new ImmutableList.Builder<Window>().addAll(windows).build(),
@@ -1937,8 +2025,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     List<Window> windows = new ArrayList<>();
     List<Period> periods = new ArrayList<>();
     for (int i = 0; i < mediaItems.size(); i++) {
-      windows.add(MediaUtils.convertToWindow(mediaItems.get(i), i));
-      periods.add(MediaUtils.convertToPeriod(i));
+      windows.add(LegacyConversions.convertToWindow(mediaItems.get(i), i));
+      periods.add(LegacyConversions.convertToPeriod(i));
     }
 
     Timeline newTimeline = createMaskingTimeline(windows, periods);
@@ -2095,6 +2183,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
               newTimeline,
               newWindowIndex,
               newPeriodIndex,
+              getCurrentPosition(),
+              getContentPosition(),
               Player.DISCONTINUITY_REASON_INTERNAL);
 
       updatePlayerInfo(
@@ -2524,8 +2614,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     intersectedPlayerCommands =
         createIntersectedCommandsEnsuringCommandReleaseAvailable(
             playerCommandsFromSession, playerCommandsFromPlayer);
-    customLayout =
-        CommandButton.getEnabledCommandButtons(
+    customLayoutOriginal = result.customLayout;
+    customLayoutWithUnavailableButtonsDisabled =
+        CommandButton.copyWithUnavailableButtonsDisabled(
             result.customLayout, sessionCommands, intersectedPlayerCommands);
     playerInfo = result.playerInfo;
     try {
@@ -2545,6 +2636,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             token.getPackageName(),
             result.sessionBinder,
             result.tokenExtras);
+    sessionExtras = result.sessionExtras;
     getInstance().notifyAccepted();
   }
 
@@ -2571,7 +2663,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             result = new SessionResult(SessionResult.RESULT_INFO_SKIPPED);
           } catch (ExecutionException | InterruptedException e) {
             Log.w(TAG, "Session operation failed", e);
-            result = new SessionResult(SessionResult.RESULT_ERROR_UNKNOWN);
+            result = new SessionResult(ERROR_UNKNOWN);
           }
           sendControllerResult(seq, result);
         },
@@ -2654,7 +2746,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     @Nullable
     @Player.PlayWhenReadyChangeReason
     Integer playWhenReadyChangeReason =
-        oldPlayerInfo.playWhenReady != finalPlayerInfo.playWhenReady
+        oldPlayerInfo.playWhenReadyChangeReason != finalPlayerInfo.playWhenReadyChangeReason
+                || oldPlayerInfo.playWhenReady != finalPlayerInfo.playWhenReady
             ? finalPlayerInfo.playWhenReadyChangeReason
             : null;
 
@@ -2677,6 +2770,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!playerCommandsChanged && !sessionCommandsChanged) {
       return;
     }
+    this.sessionCommands = sessionCommands;
     boolean intersectedPlayerCommandsChanged = false;
     if (playerCommandsChanged) {
       playerCommandsFromSession = playerCommands;
@@ -2688,13 +2782,12 @@ import org.checkerframework.checker.nullness.qual.NonNull;
           !Util.areEqual(intersectedPlayerCommands, prevIntersectedPlayerCommands);
     }
     boolean customLayoutChanged = false;
-    if (sessionCommandsChanged) {
-      this.sessionCommands = sessionCommands;
-      ImmutableList<CommandButton> oldCustomLayout = customLayout;
-      customLayout =
-          CommandButton.getEnabledCommandButtons(
-              customLayout, sessionCommands, intersectedPlayerCommands);
-      customLayoutChanged = !customLayout.equals(oldCustomLayout);
+    if (sessionCommandsChanged || intersectedPlayerCommandsChanged) {
+      ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+      customLayoutWithUnavailableButtonsDisabled =
+          CommandButton.copyWithUnavailableButtonsDisabled(
+              customLayoutOriginal, sessionCommands, intersectedPlayerCommands);
+      customLayoutChanged = !customLayoutWithUnavailableButtonsDisabled.equals(oldCustomLayout);
     }
     if (intersectedPlayerCommandsChanged) {
       listeners.sendEvent(
@@ -2710,7 +2803,9 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (customLayoutChanged) {
       getInstance()
           .notifyControllerListener(
-              listener -> listener.onCustomLayoutChanged(getInstance(), customLayout));
+              listener ->
+                  listener.onCustomLayoutChanged(
+                      getInstance(), customLayoutWithUnavailableButtonsDisabled));
     }
   }
 
@@ -2728,10 +2823,23 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             playerCommandsFromSession, playerCommandsFromPlayer);
     boolean intersectedPlayerCommandsChanged =
         !Util.areEqual(intersectedPlayerCommands, prevIntersectedPlayerCommands);
+    boolean customLayoutChanged = false;
     if (intersectedPlayerCommandsChanged) {
+      ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+      customLayoutWithUnavailableButtonsDisabled =
+          CommandButton.copyWithUnavailableButtonsDisabled(
+              customLayoutOriginal, sessionCommands, intersectedPlayerCommands);
+      customLayoutChanged = !customLayoutWithUnavailableButtonsDisabled.equals(oldCustomLayout);
       listeners.sendEvent(
           /* eventFlag= */ Player.EVENT_AVAILABLE_COMMANDS_CHANGED,
           listener -> listener.onAvailableCommandsChanged(intersectedPlayerCommands));
+    }
+    if (customLayoutChanged) {
+      getInstance()
+          .notifyControllerListener(
+              listener ->
+                  listener.onCustomLayoutChanged(
+                      getInstance(), customLayoutWithUnavailableButtonsDisabled));
     }
   }
 
@@ -2741,19 +2849,24 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!isConnected()) {
       return;
     }
-    ImmutableList<CommandButton> oldCustomLayout = customLayout;
-    customLayout =
-        CommandButton.getEnabledCommandButtons(layout, sessionCommands, intersectedPlayerCommands);
-    boolean hasCustomLayoutChanged = !Objects.equals(customLayout, oldCustomLayout);
+    ImmutableList<CommandButton> oldCustomLayout = customLayoutWithUnavailableButtonsDisabled;
+    customLayoutOriginal = ImmutableList.copyOf(layout);
+    customLayoutWithUnavailableButtonsDisabled =
+        CommandButton.copyWithUnavailableButtonsDisabled(
+            layout, sessionCommands, intersectedPlayerCommands);
+    boolean hasCustomLayoutChanged =
+        !Objects.equals(customLayoutWithUnavailableButtonsDisabled, oldCustomLayout);
     getInstance()
         .notifyControllerListener(
             listener -> {
               ListenableFuture<SessionResult> future =
                   checkNotNull(
-                      listener.onSetCustomLayout(getInstance(), customLayout),
+                      listener.onSetCustomLayout(
+                          getInstance(), customLayoutWithUnavailableButtonsDisabled),
                       "MediaController.Listener#onSetCustomLayout() must not return null");
               if (hasCustomLayoutChanged) {
-                listener.onCustomLayoutChanged(getInstance(), customLayout);
+                listener.onCustomLayoutChanged(
+                    getInstance(), customLayoutWithUnavailableButtonsDisabled);
               }
               sendControllerResultWhenReady(seq, future);
             });
@@ -2763,6 +2876,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     if (!isConnected()) {
       return;
     }
+    sessionExtras = extras;
     getInstance()
         .notifyControllerListener(listener -> listener.onExtrasChanged(getInstance(), extras));
   }
@@ -2775,6 +2889,14 @@ import org.checkerframework.checker.nullness.qual.NonNull;
     getInstance()
         .notifyControllerListener(
             listener -> listener.onSessionActivityChanged(getInstance(), sessionActivity));
+  }
+
+  public void onError(int seq, SessionError sessionError) {
+    if (!isConnected()) {
+      return;
+    }
+    getInstance()
+        .notifyControllerListener(listener -> listener.onError(getInstance(), sessionError));
   }
 
   public void onRenderedFirstFrame() {
@@ -2954,6 +3076,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
       Timeline timeline,
       int newMediaItemIndex,
       int newPeriodIndex,
+      long newPositionMs,
+      long newContentPositionMs,
       int discontinuityReason) {
     PositionInfo newPositionInfo =
         new PositionInfo(
@@ -2962,8 +3086,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
             timeline.getWindow(newMediaItemIndex, new Window()).mediaItem,
             /* periodUid= */ null,
             newPeriodIndex,
-            playerInfo.sessionPositionInfo.positionInfo.positionMs,
-            playerInfo.sessionPositionInfo.positionInfo.contentPositionMs,
+            newPositionMs,
+            newContentPositionMs,
             playerInfo.sessionPositionInfo.positionInfo.adGroupIndex,
             playerInfo.sessionPositionInfo.positionInfo.adIndexInAdGroup);
     return maskTimelineAndPositionInfo(

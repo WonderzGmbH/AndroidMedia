@@ -17,6 +17,7 @@ package androidx.media3.test.exoplayer.playback.gts;
 
 import static java.lang.Math.max;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
@@ -243,6 +244,7 @@ import java.util.ArrayList;
       super.renderOutputBuffer(codec, index, presentationTimeUs);
     }
 
+    @SuppressLint("UseSdkSuppress") // Not a test class or method.
     @RequiresApi(21)
     @Override
     protected void renderOutputBufferV21(
@@ -288,6 +290,13 @@ import java.util.ArrayList;
     @Override
     protected boolean codecNeedsSetOutputSurfaceWorkaround(String name) {
       // Disable all workarounds for testing - devices that require the workaround should fail GTS.
+      return false;
+    }
+
+    // TODO: b/321230611 - Remove this override when 'late' buffers that result in identical release
+    //  timestamps are reported as 'dropped' instead of 'skipped'.
+    @Override
+    protected boolean shouldSkipBuffersWithIdenticalReleaseTime() {
       return false;
     }
 
