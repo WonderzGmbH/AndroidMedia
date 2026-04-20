@@ -27,6 +27,7 @@ import android.util.Pair;
 import android.util.Xml;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
+import androidx.media3.common.ColorInfo;
 import androidx.media3.common.DrmInitData;
 import androidx.media3.common.DrmInitData.SchemeData;
 import androidx.media3.common.Format;
@@ -127,6 +128,10 @@ public class DashManifestParser extends DefaultHandler
       }
       return parseMediaPresentationDescription(xpp, uri);
     } catch (XmlPullParserException e) {
+      if (e.getDetail() instanceof IOException) {
+        // Forward IOException from input stream directly instead of wrapping in a ParserException
+        throw (IOException) e.getDetail();
+      }
       throw ParserException.createForMalformedManifest(/* message= */ null, /* cause= */ e);
     }
   }
@@ -848,8 +853,11 @@ public class DashManifestParser extends DefaultHandler
         codecs = MimeTypes.CODEC_E_AC3_JOC;
       }
     }
+
+    @Nullable ColorInfo colorInfo = null;
     if (MimeTypes.isDolbyVisionCodec(codecs, supplementalCodecs)) {
       sampleMimeType = MimeTypes.VIDEO_DOLBY_VISION;
+      colorInfo = Util.getColorInfoForDolbyVision(codecs, supplementalCodecs, supplementalProfiles);
       codecs = supplementalCodecs != null ? supplementalCodecs : codecs;
     }
     @C.SelectionFlags int selectionFlags = parseSelectionFlagsFromRoleDescriptors(roleDescriptors);
@@ -868,6 +876,7 @@ public class DashManifestParser extends DefaultHandler
             .setPeakBitrate(bitrate)
             .setSelectionFlags(selectionFlags)
             .setRoleFlags(roleFlags)
+            .setColorInfo(colorInfo)
             .setLanguage(language)
             .setTileCountHorizontal(tileCounts != null ? tileCounts.first : Format.NO_VALUE)
             .setTileCountVertical(tileCounts != null ? tileCounts.second : Format.NO_VALUE);

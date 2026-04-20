@@ -19,10 +19,10 @@ import android.content.Context;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.net.Uri;
-import android.os.Looper;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.util.Util;
 import androidx.media3.database.DefaultDatabaseProvider;
 import androidx.media3.datasource.cache.Cache;
@@ -136,11 +136,11 @@ public final class ExoPlayerModuleProguard {
     throw new IllegalStateException();
   }
 
-  /** Creates a LibiamfAudioRenderer with {@link DefaultRenderersFactory}. */
-  public static void createLibiamfAudioRendererWithDefaultRenderersFactory(Context context) {
+  /** Creates a IamfAudioRenderer with {@link DefaultRenderersFactory}. */
+  public static void createIamfAudioRendererWithDefaultRenderersFactory(Context context) {
     for (Renderer renderer : createDefaultRenderersFactoryRenderers(context)) {
       // Don't use instanceof to prevent including the class in the apk directly.
-      if (Objects.equals(renderer.getName(), "LibiamfAudioRenderer")) {
+      if (Objects.equals(renderer.getName(), "IamfAudioRenderer")) {
         return;
       }
     }
@@ -222,13 +222,13 @@ public final class ExoPlayerModuleProguard {
 
   /**
    * Creates a {@link PlaybackVideoGraphWrapper} then {@linkplain VideoSink#initialize(Format)
-   * initializes} the sink in order to reflectively instantiate a {@code
-   * androidx.media3.effect.SingleInputVideoGraph.Factory} via {@code
-   * CompositingVideoSinkProvider.ReflectiveDefaultVideoFrameProcessorFactory}.
+   * initializes} the sink in order to test reflective access in {@link PlaybackVideoGraphWrapper}.
    */
-  public static void createSingleInputVideoGraphWithCompositingVideoSinkProvider(Context context)
+  public static void setVideoEffectsAndCheckReflectiveAccess(Context context)
       throws VideoSink.VideoSinkException {
-    Looper.prepare();
+    ExoPlayer player = new ExoPlayer.Builder(context).build();
+    player.setVideoEffects(VideoFrameProcessor.REDRAW);
+    player.release();
     VideoFrameReleaseControl.FrameTimingEvaluator frameTimingEvaluator =
         new VideoFrameReleaseControl.FrameTimingEvaluator() {
           @Override

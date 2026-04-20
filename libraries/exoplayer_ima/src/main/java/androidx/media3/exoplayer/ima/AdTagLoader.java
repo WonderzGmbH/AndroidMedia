@@ -178,9 +178,6 @@ import java.util.Objects;
   /** Whether IMA has been notified that playback of content has finished. */
   private boolean sentContentComplete;
 
-  /** The MIME type of the ad pod that is next requested via an {@link AdEventType#LOADED} event. */
-  @Nullable private String pendingAdMimeType;
-
   // Fields tracking the player/loader state.
 
   /** Whether the player is playing an ad. */
@@ -570,14 +567,19 @@ import java.util.Objects;
     }
     adsLoader.addAdsLoadedListener(componentListener);
     AdsRequest request;
-    try {
-      request = ImaUtil.getAdsRequestForAdTagDataSpec(imaFactory, adTagDataSpec);
-    } catch (IOException e) {
-      adPlaybackState = new AdPlaybackState(adsId);
-      updateAdPlaybackState();
-      pendingAdLoadError = AdLoadException.createForAllAds(e);
-      maybeNotifyPendingAdLoadError();
-      return adsLoader;
+    if (Objects.equals(adTagDataSpec.uri.getScheme(), C.CSAI_SCHEME)
+        && Objects.equals(adTagDataSpec.uri.getAuthority(), ImaAdTagUriBuilder.IMA_AUTHORITY)) {
+      request = ImaAdTagUriBuilder.createAdsRequest(imaFactory, adTagDataSpec.uri);
+    } else {
+      try {
+        request = ImaUtil.getAdsRequestForAdTagDataSpec(imaFactory, adTagDataSpec);
+      } catch (IOException e) {
+        adPlaybackState = new AdPlaybackState(adsId);
+        updateAdPlaybackState();
+        pendingAdLoadError = AdLoadException.createForAllAds(e);
+        maybeNotifyPendingAdLoadError();
+        return adsLoader;
+      }
     }
     pendingAdRequestContext = new Object();
     request.setUserRequestContext(pendingAdRequestContext);
@@ -621,6 +623,7 @@ import java.util.Objects;
   private AdsRenderingSettings setupAdsRendering(long contentPositionMs, long contentDurationMs) {
     AdsRenderingSettings adsRenderingSettings = imaFactory.createAdsRenderingSettings();
     adsRenderingSettings.setEnablePreloading(true);
+    adsRenderingSettings.setEnableCustomTabs(configuration.enableCustomTabs);
     adsRenderingSettings.setMimeTypes(
         configuration.adMediaMimeTypes != null
             ? configuration.adMediaMimeTypes
@@ -787,9 +790,6 @@ import java.util.Objects;
         Map<String, String> adData = adEvent.getAdData();
         String message = "AdEvent: " + adData;
         Log.i(TAG, message);
-        break;
-      case LOADED:
-        pendingAdMimeType = adEvent.getAd().getContentType();
         break;
       default:
         break;
@@ -997,10 +997,18 @@ import java.util.Objects;
     }
 
     MediaItem.Builder adMediaItem = new MediaItem.Builder().setUri(adMediaInfo.getUrl());
-    if (pendingAdMimeType != null) {
-      adMediaItem.setMimeType(pendingAdMimeType);
-      pendingAdMimeType = null;
+    // Use the video MIME type if it is provided.
+    // Demuxed streams may contain an audio MIME type, however it should only be used to set the
+    // audio MIME type or compose the audio codec string, when/if ExoPlayer introduces support for
+    // demuxed streams functionality. Even audio-only streams should only use the video MIME type as
+    // they are not demuxed. It is possible that the video MIME type is not provided, in which case,
+    // we do not set the MIME type of the MediaItem. However, if an audio MIME type is provided, it
+    // is most likely that the video MIME type is also provided (though not the other way around).
+    String videoMimeType = adMediaInfo.getVideoMimeType();
+    if (videoMimeType != null) {
+      adMediaItem.setMimeType(videoMimeType);
     }
+
     adPlaybackState =
         adPlaybackState.withAvailableAdMediaItem(
             adInfo.adGroupIndex, adInfo.adIndexInAdGroup, adMediaItem.build());
@@ -1404,7 +1412,14 @@ import java.util.Objects;
 
     @Override
     public void onAdsManagerLoaded(AdsManagerLoadedEvent adsManagerLoadedEvent) {
-      AdsManager adsManager = adsManagerLoadedEvent.getAdsManager();
+      @Nullable AdsManager adsManager = adsManagerLoadedEvent.getAdsManager();
+      if (adsManager == null) {
+        // The same AdsLoader may be used for both Client-side ads and SSAI ads at the same time.
+        // In this scenario, it may emit an `AdsManagerLoadedEvent` which should be handled by the
+        // `ImaServerSideAdInsertionMediaSource` instead of the `AdTagLoader`. It's safe to ignore
+        // that event.
+        return;
+      }
       if (!Objects.equals(pendingAdRequestContext, adsManagerLoadedEvent.getUserRequestContext())) {
         adsManager.destroy();
         return;

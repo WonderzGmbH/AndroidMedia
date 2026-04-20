@@ -233,6 +233,8 @@ import java.util.Objects;
   private final HandlerWrapper applicationLooperHandler;
   private final boolean hasSecondaryRenderers;
   private final AudioFocusManager audioFocusManager;
+  private final boolean avoidLoadingWhileEnded;
+
   private SeekParameters seekParameters;
   private ScrubbingModeParameters scrubbingModeParameters;
   @Nullable private SeekParameters scrubbingModeSeekParameters;
@@ -290,7 +292,8 @@ import java.util.Objects;
       PlayerId playerId,
       @Nullable PlaybackLooperProvider playbackLooperProvider,
       PreloadConfiguration preloadConfiguration,
-      VideoFrameMetadataListener videoFrameMetadataListener) {
+      VideoFrameMetadataListener videoFrameMetadataListener,
+      boolean avoidLoadingWhileEnded) {
     this.playbackInfoUpdateListener = playbackInfoUpdateListener;
     this.trackSelector = trackSelector;
     this.emptyTrackSelectorResult = emptyTrackSelectorResult;
@@ -310,6 +313,7 @@ import java.util.Objects;
     this.analyticsCollector = analyticsCollector;
     this.volume = 1f;
     this.scrubbingModeParameters = ScrubbingModeParameters.DEFAULT;
+    this.avoidLoadingWhileEnded = avoidLoadingWhileEnded;
 
     playbackMaybeBecameStuckAtMs = C.TIME_UNSET;
     lastRebufferRealtimeMs = C.TIME_UNSET;
@@ -1341,12 +1345,18 @@ import java.util.Objects;
     // Remove other pending DO_SOME_WORK requests that are handled by this invocation.
     handler.removeMessages(MSG_DO_SOME_WORK);
 
-    updatePeriods();
+    if (!avoidLoadingWhileEnded) {
+      updatePeriods();
+    }
 
     if (playbackInfo.playbackState == Player.STATE_IDLE
         || playbackInfo.playbackState == Player.STATE_ENDED) {
       // Nothing to do. Prepare (in case of IDLE) or seek (in case of ENDED) will resume.
       return;
+    }
+
+    if (avoidLoadingWhileEnded) {
+      updatePeriods();
     }
 
     @Nullable MediaPeriodHolder playingPeriodHolder = queue.getPlayingPeriod();
@@ -1772,7 +1782,8 @@ import java.util.Objects;
       boolean hasResetToKeyFrame = true;
       if (!newPlayingPeriodHolder.prepared) {
         newPlayingPeriodHolder.info =
-            newPlayingPeriodHolder.info.copyWithStartPositionUs(periodPositionUs);
+            newPlayingPeriodHolder.info.copyWithStartPositionUs(
+                periodPositionUs, /* liveStreamStartPositionProjectionUs= */ C.TIME_UNSET);
       } else if (newPlayingPeriodHolder.hasEnabledTracks) {
         if (scrubbingModeEnabled
             && scrubbingModeParameters.allowSkippingKeyFrameReset
@@ -2468,14 +2479,11 @@ import java.util.Objects;
             queue,
             repeatMode,
             shuffleModeEnabled,
+            isSourceRefresh,
             window,
             period);
     MediaPeriodId newPeriodId = positionUpdate.periodId;
-    long newRequestedContentPositionUs = positionUpdate.requestedContentPositionUs;
-    boolean forceBufferingState = positionUpdate.forceBufferingState;
     long newPositionUs = positionUpdate.periodPositionUs;
-    boolean periodPositionChanged =
-        !playbackInfo.periodId.equals(newPeriodId) || newPositionUs != playbackInfo.positionUs;
     try {
       if (positionUpdate.endPlayback) {
         if (playbackInfo.playbackState != Player.STATE_IDLE) {
@@ -2490,7 +2498,7 @@ import java.util.Objects;
       for (RendererHolder rendererHolder : renderers) {
         rendererHolder.setTimeline(timeline);
       }
-      if (!periodPositionChanged) {
+      if (!positionUpdate.periodPositionChanged) {
         // We can keep the current playing period. Update the rest of the queued periods.
         long maxRendererReadPositionUs =
             queue.getReadingPeriod() == null
@@ -2524,7 +2532,8 @@ import java.util.Objects;
           }
           periodHolder = periodHolder.getNext();
         }
-        newPositionUs = seekToPeriodPosition(newPeriodId, newPositionUs, forceBufferingState);
+        newPositionUs =
+            seekToPeriodPosition(newPeriodId, newPositionUs, positionUpdate.forceBufferingState);
       }
     } finally {
       updatePlaybackSpeedSettingsForNewPeriod(
@@ -2536,25 +2545,18 @@ import java.util.Objects;
               ? newPositionUs
               : C.TIME_UNSET,
           /* forceSetTargetOffsetOverride= */ false);
-      if (periodPositionChanged
-          || newRequestedContentPositionUs != playbackInfo.requestedContentPositionUs) {
-        Object oldPeriodUid = playbackInfo.periodId.periodUid;
-        Timeline oldTimeline = playbackInfo.timeline;
-        boolean reportDiscontinuity =
-            periodPositionChanged
-                && isSourceRefresh
-                && !oldTimeline.isEmpty()
-                && !oldTimeline.getPeriodByUid(oldPeriodUid, period).isPlaceholder;
+      if (positionUpdate.periodPositionChanged
+          || positionUpdate.requestedContentPositionUs != playbackInfo.requestedContentPositionUs) {
         playbackInfo =
             handlePositionDiscontinuity(
                 newPeriodId,
                 newPositionUs,
-                newRequestedContentPositionUs,
-                reportDiscontinuity ? newPositionUs : playbackInfo.discontinuityStartPositionUs,
-                reportDiscontinuity,
-                timeline.getIndexOfPeriod(oldPeriodUid) == C.INDEX_UNSET
-                    ? Player.DISCONTINUITY_REASON_REMOVE
-                    : Player.DISCONTINUITY_REASON_SKIP);
+                positionUpdate.requestedContentPositionUs,
+                positionUpdate.reportDiscontinuity
+                    ? newPositionUs
+                    : playbackInfo.discontinuityStartPositionUs,
+                positionUpdate.reportDiscontinuity,
+                positionUpdate.discontinuityReason);
       }
       resetPendingPauseAtEndOfPeriod();
       resolvePendingMessagePositions(
@@ -3526,16 +3528,29 @@ import java.util.Objects;
       MediaPeriodQueue queue,
       @RepeatMode int repeatMode,
       boolean shuffleModeEnabled,
+      boolean isSourceRefresh,
       Timeline.Window window,
       Timeline.Period period) {
     if (timeline.isEmpty()) {
+      MediaPeriodId newPeriodId = PlaybackInfo.getDummyPeriodForEmptyTimeline();
+      boolean periodPositionChanged =
+          !newPeriodId.equals(playbackInfo.periodId) || playbackInfo.positionUs != 0;
+      boolean reportDiscontinuity =
+          periodPositionChanged
+              && isSourceRefresh
+              && !playbackInfo.timeline.isEmpty()
+              && !playbackInfo.timeline.getPeriodByUid(playbackInfo.periodId.periodUid, period)
+                  .isPlaceholder;
       return new PositionUpdateForPlaylistChange(
-          PlaybackInfo.getDummyPeriodForEmptyTimeline(),
+          newPeriodId,
           /* periodPositionUs= */ 0,
           /* requestedContentPositionUs= */ C.TIME_UNSET,
           /* forceBufferingState= */ false,
           /* endPlayback= */ true,
-          /* setTargetLiveOffset= */ false);
+          /* setTargetLiveOffset= */ false,
+          /* periodPositionChanged= */ periodPositionChanged,
+          /* reportDiscontinuity= */ reportDiscontinuity,
+          /* discontinuityReason= */ Player.DISCONTINUITY_REASON_REMOVE);
     }
     MediaPeriodId oldPeriodId = playbackInfo.periodId;
     Object newPeriodUid = oldPeriodId.periodUid;
@@ -3709,14 +3724,40 @@ import java.util.Objects;
         newContentPositionUs = periodPositionUs;
       }
     }
-
+    boolean periodPositionChanged =
+        !newPeriodId.equals(playbackInfo.periodId) || periodPositionUs != playbackInfo.positionUs;
+    @DiscontinuityReason
+    int discontinuityReason =
+        timeline.getIndexOfPeriod(playbackInfo.periodId.periodUid) == C.INDEX_UNSET
+            ? Player.DISCONTINUITY_REASON_REMOVE
+            : Player.DISCONTINUITY_REASON_SKIP;
+    if (newPeriodId.periodUid.equals(playbackInfo.periodId.periodUid)
+        && newPeriodId.adGroupIndex != C.INDEX_UNSET) {
+      AdPlaybackState adPlaybackState =
+          timeline.getPeriodByUid(newPeriodId.periodUid, period).adPlaybackState;
+      AdGroup adGroup = adPlaybackState.getAdGroup(newPeriodId.adGroupIndex);
+      if (newPeriodId.adIndexInAdGroup >= adGroup.states.length
+          || adGroup.states[newPeriodId.adIndexInAdGroup] != AdPlaybackState.AD_STATE_SKIPPED) {
+        // An ad inserted into the timeline causes a sudden change of the playing period.
+        discontinuityReason = Player.DISCONTINUITY_REASON_AUTO_TRANSITION;
+      }
+    }
+    boolean reportDiscontinuity =
+        periodPositionChanged
+            && isSourceRefresh
+            && !playbackInfo.timeline.isEmpty()
+            && !playbackInfo.timeline.getPeriodByUid(playbackInfo.periodId.periodUid, period)
+                .isPlaceholder;
     return new PositionUpdateForPlaylistChange(
         newPeriodId,
         periodPositionUs,
         newContentPositionUs,
         forceBufferingState,
         endPlayback,
-        setTargetLiveOffset);
+        setTargetLiveOffset,
+        periodPositionChanged,
+        reportDiscontinuity,
+        discontinuityReason);
   }
 
   private static boolean isIgnorableServerSideAdInsertionPeriodChange(
@@ -4041,6 +4082,9 @@ import java.util.Objects;
     public final boolean forceBufferingState;
     public final boolean endPlayback;
     public final boolean setTargetLiveOffset;
+    private final boolean periodPositionChanged;
+    private final boolean reportDiscontinuity;
+    private final @DiscontinuityReason int discontinuityReason;
 
     public PositionUpdateForPlaylistChange(
         MediaPeriodId periodId,
@@ -4048,13 +4092,19 @@ import java.util.Objects;
         long requestedContentPositionUs,
         boolean forceBufferingState,
         boolean endPlayback,
-        boolean setTargetLiveOffset) {
+        boolean setTargetLiveOffset,
+        boolean periodPositionChanged,
+        boolean reportDiscontinuity,
+        int discontinuityReason) {
       this.periodId = periodId;
       this.periodPositionUs = periodPositionUs;
       this.requestedContentPositionUs = requestedContentPositionUs;
       this.forceBufferingState = forceBufferingState;
       this.endPlayback = endPlayback;
       this.setTargetLiveOffset = setTargetLiveOffset;
+      this.periodPositionChanged = periodPositionChanged;
+      this.reportDiscontinuity = reportDiscontinuity;
+      this.discontinuityReason = discontinuityReason;
     }
   }
 

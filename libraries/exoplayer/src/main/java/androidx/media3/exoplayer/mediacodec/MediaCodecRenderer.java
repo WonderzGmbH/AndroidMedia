@@ -32,6 +32,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.content.Context;
 import android.media.MediaCodec;
 import android.media.MediaCodec.CodecException;
 import android.media.MediaCrypto;
@@ -50,11 +51,13 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
+import androidx.media3.common.util.ExperimentalApi;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.TimedValueQueue;
 import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.container.OpusUtil;
 import androidx.media3.decoder.CryptoConfig;
 import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.decoder.DecoderInputBuffer.InsufficientCapacityException;
@@ -76,7 +79,6 @@ import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.SampleStream;
 import androidx.media3.exoplayer.source.SampleStream.ReadDataResult;
 import androidx.media3.exoplayer.source.SampleStream.ReadFlags;
-import androidx.media3.extractor.OpusUtil;
 import com.google.common.collect.ImmutableSet;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
@@ -330,6 +332,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
 
   private static final int ADAPTATION_WORKAROUND_SLICE_WIDTH_HEIGHT = 32;
 
+  private final Context context;
   private final MediaCodecAdapter.Factory codecAdapterFactory;
   private final MediaCodecSelector mediaCodecSelector;
   private final boolean enableDecoderFallback;
@@ -415,6 +418,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
   private ImmutableSet<String> subscribedCodecParameterKeys;
 
   /**
+   * @param context A context.
    * @param trackType The {@link C.TrackType track type} that the renderer handles.
    * @param codecAdapterFactory A factory for {@link MediaCodecAdapter} instances.
    * @param mediaCodecSelector A decoder selector.
@@ -426,12 +430,14 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
    *     explicitly using {@link MediaFormat#KEY_OPERATING_RATE}).
    */
   public MediaCodecRenderer(
+      Context context,
       @C.TrackType int trackType,
       MediaCodecAdapter.Factory codecAdapterFactory,
       MediaCodecSelector mediaCodecSelector,
       boolean enableDecoderFallback,
       float assumedMinimumCodecOperatingRate) {
     super(trackType);
+    this.context = context.getApplicationContext();
     this.codecAdapterFactory = codecAdapterFactory;
     this.mediaCodecSelector = checkNotNull(mediaCodecSelector);
     this.enableDecoderFallback = enableDecoderFallback;
@@ -527,6 +533,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
    * <p>When not enabled, {@link #onProcessedStreamChange()} is invoked from the second stream
    * onwards.
    */
+  @ExperimentalApi // TODO: b/470373575 - Enable this feature by default.
   public void experimentalEnableProcessedStreamChangedAtStart() {
     this.experimentalEnableProcessedStreamChangedAtStart = true;
   }
@@ -1390,7 +1397,7 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     }
     codecInitializedTimestamp = getClock().elapsedRealtime();
 
-    if (!codecInfo.isFormatSupported(inputFormat)) {
+    if (!codecInfo.isFormatSupported(context, inputFormat)) {
       Log.w(
           TAG,
           Util.formatInvariant(
@@ -1763,7 +1770,10 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
     // * b/229399008#comment9
     // * https://github.com/androidx/media/issues/2408
     if ((Objects.equals(newFormat.sampleMimeType, MimeTypes.VIDEO_AV1)
-            || Objects.equals(newFormat.sampleMimeType, MimeTypes.VIDEO_VP9))
+            || Objects.equals(newFormat.sampleMimeType, MimeTypes.VIDEO_VP9)
+            || (Objects.equals(newFormat.sampleMimeType, MimeTypes.VIDEO_DOLBY_VISION)
+                && Objects.equals(
+                    MediaCodecUtil.getAlternativeCodecMimeType(newFormat), MimeTypes.VIDEO_AV1)))
         && !newFormat.initializationData.isEmpty()) {
       newFormat = newFormat.buildUpon().setInitializationData(null).build();
     }

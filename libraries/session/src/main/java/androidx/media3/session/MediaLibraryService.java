@@ -15,12 +15,14 @@
  */
 package androidx.media3.session;
 
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
 import static androidx.media3.session.LibraryResult.RESULT_SUCCESS;
 import static androidx.media3.session.LibraryResult.ofVoid;
 import static androidx.media3.session.SessionError.ERROR_BAD_VALUE;
 import static androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
@@ -430,6 +432,7 @@ public abstract class MediaLibraryService extends MediaSessionService {
     public static final class Builder extends BuilderBase<MediaLibrarySession, Builder, Callback> {
 
       private @LibraryErrorReplicationMode int libraryErrorReplicationMode;
+      private boolean buildCalled;
 
       /**
        * Creates a builder for {@link MediaLibrarySession}.
@@ -688,6 +691,8 @@ public abstract class MediaLibraryService extends MediaSessionService {
        */
       @Override
       public MediaLibrarySession build() {
+        checkState(!buildCalled);
+        buildCalled = true;
         ensureBitmapLoaderIsSizeLimited();
         return new MediaLibrarySession(
             context,
@@ -1001,7 +1006,7 @@ public abstract class MediaLibraryService extends MediaSessionService {
     /** Restores a {@code LibraryParams} from a {@link Bundle}. */
     @UnstableApi
     public static LibraryParams fromBundle(Bundle bundle) {
-      @Nullable Bundle extras = bundle.getBundle(FIELD_EXTRAS);
+      @Nullable Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS));
       boolean recent = bundle.getBoolean(FIELD_RECENT, /* defaultValue= */ false);
       boolean offline = bundle.getBoolean(FIELD_OFFLINE, /* defaultValue= */ false);
       boolean suggested = bundle.getBoolean(FIELD_SUGGESTED, /* defaultValue= */ false);

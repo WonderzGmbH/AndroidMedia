@@ -20,6 +20,7 @@ import static androidx.media3.common.util.CodecSpecificDataUtil.getHevcProfileAn
 import static java.lang.Math.max;
 
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaCodecList;
@@ -31,6 +32,7 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
+import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.CodecSpecificDataUtil;
@@ -256,10 +258,11 @@ public final class MediaCodecUtil {
    */
   @CheckResult
   public static List<MediaCodecInfo> getDecoderInfosSortedByFormatSupport(
-      List<MediaCodecInfo> decoderInfos, Format format) {
+      Context context, List<MediaCodecInfo> decoderInfos, Format format) {
     decoderInfos = new ArrayList<>(decoderInfos);
     sortByScore(
-        decoderInfos, decoderInfo -> decoderInfo.isFormatFunctionallySupported(format) ? 1 : 0);
+        decoderInfos,
+        decoderInfo -> decoderInfo.isFormatFunctionallySupported(context, format) ? 1 : 0);
     return decoderInfos;
   }
 
@@ -269,16 +272,12 @@ public final class MediaCodecUtil {
    */
   @CheckResult
   public static List<MediaCodecInfo> getDecoderInfosSortedByFullFormatSupport(
-      List<MediaCodecInfo> decoderInfos, Format format) {
+      Context context, List<MediaCodecInfo> decoderInfos, Format format) {
     decoderInfos = new ArrayList<>(decoderInfos);
     sortByScore(
         decoderInfos,
         decoderInfo -> {
-          try {
-            return decoderInfo.isFormatSupported(format) ? 1 : 0;
-          } catch (DecoderQueryException e) {
-            return -1;
-          }
+          return decoderInfo.isFormatSupported(context, format) ? 1 : 0;
         });
     return decoderInfos;
   }
@@ -396,6 +395,11 @@ public final class MediaCodecUtil {
         } else if (profile == CodecProfileLevel.DolbyVisionProfileDvavSe) {
           return MimeTypes.VIDEO_H264;
         } else if (profile == CodecProfileLevel.DolbyVisionProfileDvav110) {
+          if (format.colorInfo != null
+              && format.colorInfo.colorTransfer == C.COLOR_TRANSFER_ST2084
+              && format.colorInfo.colorRange == C.COLOR_RANGE_FULL) {
+            return null;
+          }
           return MimeTypes.VIDEO_AV1;
         }
       }

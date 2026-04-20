@@ -15,13 +15,14 @@
  */
 package androidx.media3.common.util;
 
+import static android.app.Service.STOP_FOREGROUND_DETACH;
+import static android.app.Service.STOP_FOREGROUND_REMOVE;
 import static android.content.Context.UI_MODE_SERVICE;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_INVERSE;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_LINEAR;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_DEPTH_METADATA;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_ORIGINAL;
 import static androidx.media3.common.C.AUXILIARY_TRACK_TYPE_UNDEFINED;
-import static androidx.media3.common.Player.COMMAND_GET_TIMELINE;
 import static androidx.media3.common.Player.COMMAND_PLAY_PAUSE;
 import static androidx.media3.common.Player.COMMAND_PREPARE;
 import static androidx.media3.common.Player.COMMAND_SEEK_BACK;
@@ -46,6 +47,8 @@ import android.Manifest.permission;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.app.UiModeManager;
 import android.content.BroadcastReceiver;
@@ -70,6 +73,7 @@ import android.media.MediaCodec;
 import android.media.MediaDrm;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcel;
@@ -90,6 +94,7 @@ import androidx.annotation.RequiresApi;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.C.ContentType;
+import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaLibraryInfo;
@@ -113,6 +118,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.InlineMe;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -195,7 +201,7 @@ public final class Util {
       Pattern.compile(
           "(\\d\\d\\d\\d)\\-(\\d\\d)\\-(\\d\\d)[Tt ]"
               + "(\\d\\d):(\\d\\d):(\\d\\d)([\\.,](\\d+))?"
-              + "([Zz]|((\\+|\\-)(\\d?\\d):?(\\d\\d)))?");
+              + "([Zz]|((\\+|\\-)(\\d?\\d):?(\\d\\d)?))?");
   private static final Pattern XS_DURATION_PATTERN =
       Pattern.compile(
           "^(-)?P(([0-9]*)Y)?(([0-9]*)M)?(([0-9]*)D)?"
@@ -321,6 +327,40 @@ public final class Util {
     } else {
       service.startForeground(notificationId, notification);
     }
+  }
+
+  /**
+   * Takes the service off the foreground by safely calling the correct variant of {@code
+   * Service.stopForeground} on the given API level of the device.
+   *
+   * @param service The service to be taken off the foreground.
+   * @param removeNotification Whether to remove the notification that was attached to the service.
+   */
+  @UnstableApi
+  public static void stopForeground(Service service, boolean removeNotification) {
+    if (Build.VERSION.SDK_INT >= 24) {
+      Api24.stopForeground(service, removeNotification);
+    } else {
+      service.stopForeground(removeNotification);
+    }
+  }
+
+  /**
+   * Ensure that the {@link NotificationChannel} with the given channel ID exists. If not existing,
+   * the channel is created.
+   *
+   * @param notificationManager The {@link NotificationManager} to create the channel with.
+   * @param channelId The channel ID.
+   * @param channelName The channel name.
+   */
+  @UnstableApi
+  public static void ensureNotificationChannel(
+      NotificationManager notificationManager, String channelId, String channelName) {
+    if (Build.VERSION.SDK_INT < 26
+        || notificationManager.getNotificationChannel(channelId) != null) {
+      return;
+    }
+    Api26.createNotificationChannel(notificationManager, channelId, channelName);
   }
 
   /**
@@ -1060,6 +1100,29 @@ public final class Util {
   }
 
   /**
+   * Loads a file from a raw resource.
+   *
+   * <p>This should only be used for known-small files.
+   *
+   * <p>The file is assumed to be encoded in UTF-8.
+   *
+   * @param context The {@link Context}.
+   * @param resId The resource ID of the file to load.
+   * @return The content of the file to load.
+   * @throws IOException If the file couldn't be read.
+   */
+  @UnstableApi
+  public static String loadRawResource(Context context, int resId) throws IOException {
+    @Nullable InputStream inputStream = null;
+    try {
+      inputStream = context.getResources().openRawResource(resId);
+      return Util.fromUtf8Bytes(ByteStreams.toByteArray(inputStream));
+    } finally {
+      Util.closeQuietly(inputStream);
+    }
+  }
+
+  /**
    * Returns a new {@link String} constructed by decoding UTF-8 encoded bytes.
    *
    * @param bytes The UTF-8 encoded bytes to decode.
@@ -1204,6 +1267,19 @@ public final class Util {
    */
   @UnstableApi
   public static float constrainValue(float value, float min, float max) {
+    return max(min, min(value, max));
+  }
+
+  /**
+   * Constrains a value to the specified bounds.
+   *
+   * @param value The value to constrain.
+   * @param min The lower bound.
+   * @param max The upper bound.
+   * @return The constrained value {@code Math.max(min, Math.min(value, max))}.
+   */
+  @UnstableApi
+  public static double constrainValue(double value, double min, double max) {
     return max(min, min(value, max));
   }
 
@@ -1714,6 +1790,10 @@ public final class Util {
    * Parses an xs:dateTime attribute value, returning the parsed timestamp in milliseconds since the
    * epoch.
    *
+   * <p>The parsing implemented here is deliberately more tolerant than the <a
+   * href="https://www.w3.org/TR/xmlschema-2/#dateTime">XML spec</a> allows, as this method is also
+   * used to parse ISO 8601 and RFC 3339 date-time strings.
+   *
    * @param value The attribute value to decode.
    * @return The parsed timestamp in milliseconds since the epoch.
    * @throws ParserException if an error occurs parsing the dateTime attribute value.
@@ -1736,8 +1816,11 @@ public final class Util {
     } else if (matcher.group(9).equalsIgnoreCase("Z")) {
       timezoneShift = 0;
     } else {
-      timezoneShift =
-          ((Integer.parseInt(matcher.group(12)) * 60 + Integer.parseInt(matcher.group(13))));
+      timezoneShift = Integer.parseInt(matcher.group(12)) * 60;
+      String timezoneOffsetMinutes = matcher.group(13);
+      if (timezoneOffsetMinutes != null) {
+        timezoneShift += Integer.parseInt(timezoneOffsetMinutes);
+      }
       if ("-".equals(matcher.group(11))) {
         timezoneShift *= -1;
       }
@@ -2166,6 +2249,70 @@ public final class Util {
   }
 
   /**
+   * Returns the {@link ColorInfo} for specific Dolby Vision codecs and profiles.
+   *
+   * <p>This method only supports providing {@link ColorInfo} for the following Dolby Vision codecs
+   * and profiles:
+   *
+   * <ul>
+   *   <li>Dolby Vision profiles 5, 10.0, and 20.0
+   *   <li>Dolby Vision profiles 8.1 and 8.4 when providing supplemental profile values
+   * </ul>
+   *
+   * @param codecs A codec sequence string, as defined in RFC 6381.
+   * @param supplementalCodecs An optional RFC 6381 codecs string for supplemental codecs.
+   * @param supplementalProfiles Optional supplemental profile info.
+   * @return The {@link ColorInfo} for specific Dolby Vision codecs and profiles and otherwise null.
+   */
+  @UnstableApi
+  @Nullable
+  public static ColorInfo getColorInfoForDolbyVision(
+      @Nullable String codecs,
+      @Nullable String supplementalCodecs,
+      @Nullable String supplementalProfiles) {
+    if (codecs == null) {
+      return null;
+    }
+
+    @C.ColorSpace int colorSpace = Format.NO_VALUE;
+    @C.ColorRange int colorRange = Format.NO_VALUE;
+    @C.ColorTransfer int colorTransfer = Format.NO_VALUE;
+
+    if (!MimeTypes.isDolbyVisionCodec(codecs, supplementalCodecs)) {
+      return null;
+    }
+
+    if (codecs.startsWith("dvhe") || codecs.startsWith("dvh1") || codecs.startsWith("dav1")) {
+      // profiles 5, 10.0 and 20.0
+      colorSpace = C.COLOR_SPACE_BT2020;
+      colorTransfer = C.COLOR_TRANSFER_ST2084;
+      colorRange = C.COLOR_RANGE_FULL;
+    } else if (supplementalProfiles != null) {
+      if (supplementalProfiles.equals("db1p")) {
+        // BL signal cross-compatibility ID = 1 (e.g profile 8.1)
+        colorSpace = C.COLOR_SPACE_BT2020;
+        colorTransfer = C.COLOR_TRANSFER_ST2084;
+        colorRange = C.COLOR_RANGE_LIMITED;
+      } else if (supplementalProfiles.startsWith("db4")) { // db4g or db4h
+        // BL signal cross-compatibility ID = 4 (e.g profile 8.4)
+        colorSpace = C.COLOR_SPACE_BT2020;
+        colorTransfer = C.COLOR_TRANSFER_HLG;
+        colorRange = C.COLOR_RANGE_LIMITED;
+      }
+    }
+
+    if (colorSpace == Format.NO_VALUE) {
+      return null;
+    }
+
+    return new ColorInfo.Builder()
+        .setColorSpace(colorSpace)
+        .setColorRange(colorRange)
+        .setColorTransfer(colorTransfer)
+        .build();
+  }
+
+  /**
    * Returns a copy of {@code codecs} without the codecs whose track type matches {@code trackType}.
    *
    * @param codecs A codec sequence string, as defined in RFC 6381.
@@ -2289,7 +2436,8 @@ public final class Util {
         || encoding == C.ENCODING_PCM_24BIT_BIG_ENDIAN
         || encoding == C.ENCODING_PCM_32BIT
         || encoding == C.ENCODING_PCM_32BIT_BIG_ENDIAN
-        || encoding == C.ENCODING_PCM_FLOAT;
+        || encoding == C.ENCODING_PCM_FLOAT
+        || encoding == C.ENCODING_PCM_DOUBLE;
   }
 
   /**
@@ -2304,7 +2452,8 @@ public final class Util {
         || encoding == C.ENCODING_PCM_24BIT_BIG_ENDIAN
         || encoding == C.ENCODING_PCM_32BIT
         || encoding == C.ENCODING_PCM_32BIT_BIG_ENDIAN
-        || encoding == C.ENCODING_PCM_FLOAT;
+        || encoding == C.ENCODING_PCM_FLOAT
+        || encoding == C.ENCODING_PCM_DOUBLE;
   }
 
   /**
@@ -2447,6 +2596,7 @@ public final class Util {
       case C.ENCODING_PCM_32BIT:
         return 31;
       case C.ENCODING_DTS_UHD_P2:
+      case C.ENCODING_DSD:
         return 34;
       default:
         return Integer.MAX_VALUE;
@@ -2486,6 +2636,8 @@ public final class Util {
       case C.ENCODING_PCM_32BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_FLOAT:
         return 4;
+      case C.ENCODING_PCM_DOUBLE:
+        return 8;
       case C.ENCODING_INVALID:
       case Format.NO_VALUE:
       default:
@@ -3707,7 +3859,7 @@ public final class Util {
       case C.FORMAT_UNSUPPORTED_DRM:
         return "NO_UNSUPPORTED_DRM";
       case C.FORMAT_UNSUPPORTED_SUBTYPE:
-        return "NO_UNSUPPORTED_TYPE";
+        return "NO_UNSUPPORTED_SUBTYPE";
       case C.FORMAT_UNSUPPORTED_TYPE:
         return "NO";
       default:
@@ -3801,10 +3953,21 @@ public final class Util {
   @EnsuresNonNullIf(result = true, expression = "#1")
   @UnstableApi
   public static boolean shouldEnablePlayPauseButton(@Nullable Player player) {
-    return player != null
-        && player.isCommandAvailable(COMMAND_PLAY_PAUSE)
-        && (!player.isCommandAvailable(COMMAND_GET_TIMELINE)
-            || !player.getCurrentTimeline().isEmpty());
+    if (player == null) {
+      return false;
+    }
+    @Player.State int playbackState = player.getPlaybackState();
+    boolean hasMediaItem =
+        !(player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+            && player.getCurrentMediaItem() == null);
+    boolean canPlayPause = player.isCommandAvailable(COMMAND_PLAY_PAUSE);
+    boolean canPrepare =
+        playbackState == Player.STATE_IDLE && player.isCommandAvailable(COMMAND_PREPARE);
+    boolean canSeekToDefault =
+        playbackState == Player.STATE_ENDED
+            && player.isCommandAvailable(COMMAND_SEEK_TO_DEFAULT_POSITION);
+
+    return hasMediaItem && (canPlayPause || canPrepare || canSeekToDefault);
   }
 
   /**
@@ -3924,6 +4087,35 @@ public final class Util {
       return handlePlayButtonAction(player);
     } else {
       return handlePauseButtonAction(player);
+    }
+  }
+
+  /**
+   * Converts the provided {@link Bundle} to {@code null} if it is invalid.
+   *
+   * <p>Typical reasons for why the validation may fail are {@link android.os.Parcelable} classes in
+   * this bundle that are not part of the app class loader or a corrupt internal state caused by
+   * concurrent writes.
+   *
+   * @param bundle The {@link Bundle} to verify, or null.
+   * @return The same {@link Bundle}, or null if the verification failed or the parameter is null.
+   */
+  @Nullable
+  @CheckReturnValue
+  @UnstableApi
+  public static Bundle convertToNullIfInvalid(@Nullable Bundle bundle) {
+    if (bundle == null) {
+      return null;
+    }
+    // Handle cases where the Bundle doesn't have a valid class loader. See b/110768808.
+    bundle.setClassLoader(checkNotNull(Util.class.getClassLoader()));
+    try {
+      // Force validation.
+      bundle.isEmpty();
+      return bundle;
+    } catch (RuntimeException e) {
+      Log.e(TAG, "Ignoring invalid bundle", e);
+      return null;
     }
   }
 
@@ -4175,6 +4367,32 @@ public final class Util {
     0xDE, 0xD9, 0xD0, 0xD7, 0xC2, 0xC5, 0xCC, 0xCB, 0xE6, 0xE1, 0xE8, 0xEF, 0xFA, 0xFD, 0xF4,
     0xF3
   };
+
+  @RequiresApi(24)
+  private static class Api24 {
+
+    private static void stopForeground(Service service, boolean removeNotification) {
+      service.stopForeground(removeNotification ? STOP_FOREGROUND_REMOVE : STOP_FOREGROUND_DETACH);
+    }
+
+    private Api24() {}
+  }
+
+  @RequiresApi(26)
+  private static class Api26 {
+    private static void createNotificationChannel(
+        NotificationManager notificationManager, String channelId, String channelName) {
+      NotificationChannel channel =
+          new NotificationChannel(channelId, channelName, NotificationManager.IMPORTANCE_LOW);
+      if (Build.VERSION.SDK_INT <= 27) {
+        // API 28+ will automatically hide the app icon 'badge' for notifications using
+        // Notification.MediaStyle, but we have to manually hide it for APIs 26 (when badges were
+        // added) and 27.
+        channel.setShowBadge(false);
+      }
+      notificationManager.createNotificationChannel(channel);
+    }
+  }
 
   @RequiresApi(29)
   private static class Api29 {

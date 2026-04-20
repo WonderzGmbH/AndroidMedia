@@ -16,6 +16,7 @@
 package androidx.media3.session.legacy;
 
 import static androidx.annotation.RestrictTo.Scope.LIBRARY;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
 import static androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo.LEGACY_CONTROLLER;
 import static androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo.UNKNOWN_PID;
 import static androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo.UNKNOWN_UID;
@@ -28,8 +29,6 @@ import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.media.AudioAttributes;
-import android.media.AudioManager;
 import android.media.MediaDescription;
 import android.media.Rating;
 import android.media.VolumeProvider;
@@ -56,6 +55,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.RestrictTo;
+import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.session.legacy.MediaSessionManager.RemoteUserInfo;
@@ -418,12 +418,12 @@ public class MediaSessionCompat {
    * this session. If {@link #setPlaybackToRemote} was previously called it will stop receiving
    * volume commands and the system will begin sending volume changes to the appropriate stream.
    *
-   * <p>By default sessions are on {@link AudioManager#STREAM_MUSIC}.
+   * <p>By default sessions use {@link AudioAttributes#DEFAULT}.
    *
-   * @param stream The {@link AudioManager} stream this session is playing on.
+   * @param audioAttributes The {@link AudioAttributes} this session is using.
    */
-  public void setPlaybackToLocal(int stream) {
-    impl.setPlaybackToLocal(stream);
+  public void setPlaybackToLocal(AudioAttributes audioAttributes) {
+    impl.setPlaybackToLocal(audioAttributes);
   }
 
   /**
@@ -668,27 +668,6 @@ public class MediaSessionCompat {
   public static void ensureClassLoader(@Nullable Bundle bundle) {
     if (bundle != null) {
       bundle.setClassLoader(checkNotNull(MediaSessionCompat.class.getClassLoader()));
-    }
-  }
-
-  /**
-   * Tries to unparcel the given {@link Bundle} with the application class loader and returns {@code
-   * null} if a {@link BadParcelableException} is thrown while unparcelling, otherwise the given
-   * bundle in which the application class loader is set.
-   */
-  @Nullable
-  public static Bundle unparcelWithClassLoader(@Nullable Bundle bundle) {
-    if (bundle == null) {
-      return null;
-    }
-    ensureClassLoader(bundle);
-    try {
-      bundle.isEmpty(); // to call unparcel()
-      return bundle;
-    } catch (BadParcelableException e) {
-      // The exception details will be logged by Parcel class.
-      Log.e(TAG, "Could not unparcel the data.");
-      return null;
     }
   }
 
@@ -1080,7 +1059,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         try {
           if (command.equals(MediaControllerCompat.COMMAND_GET_EXTRA_BINDER)) {
@@ -1168,7 +1147,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPlayFromMediaId(mediaId, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1180,7 +1159,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPlayFromSearch(search, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1192,7 +1171,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPlayFromUri(uri, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1303,15 +1282,14 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
 
         try {
           if (action.equals(ACTION_PLAY_FROM_URI)) {
             if (extras != null) {
               Uri uri = extras.getParcelable(ACTION_ARGUMENT_URI);
-              Bundle bundle = extras.getBundle(ACTION_ARGUMENT_EXTRAS);
-              ensureClassLoader(bundle);
+              Bundle bundle = convertToNullIfInvalid(extras.getBundle(ACTION_ARGUMENT_EXTRAS));
               Callback.this.onPlayFromUri(uri, bundle);
             }
           } else if (action.equals(ACTION_PREPARE)) {
@@ -1319,22 +1297,19 @@ public class MediaSessionCompat {
           } else if (action.equals(ACTION_PREPARE_FROM_MEDIA_ID)) {
             if (extras != null) {
               String mediaId = extras.getString(ACTION_ARGUMENT_MEDIA_ID);
-              Bundle bundle = extras.getBundle(ACTION_ARGUMENT_EXTRAS);
-              ensureClassLoader(bundle);
+              Bundle bundle = convertToNullIfInvalid(extras.getBundle(ACTION_ARGUMENT_EXTRAS));
               Callback.this.onPrepareFromMediaId(mediaId, bundle);
             }
           } else if (action.equals(ACTION_PREPARE_FROM_SEARCH)) {
             if (extras != null) {
               String query = extras.getString(ACTION_ARGUMENT_QUERY);
-              Bundle bundle = extras.getBundle(ACTION_ARGUMENT_EXTRAS);
-              ensureClassLoader(bundle);
+              Bundle bundle = convertToNullIfInvalid(extras.getBundle(ACTION_ARGUMENT_EXTRAS));
               Callback.this.onPrepareFromSearch(query, bundle);
             }
           } else if (action.equals(ACTION_PREPARE_FROM_URI)) {
             if (extras != null) {
               Uri uri = extras.getParcelable(ACTION_ARGUMENT_URI);
-              Bundle bundle = extras.getBundle(ACTION_ARGUMENT_EXTRAS);
-              ensureClassLoader(bundle);
+              Bundle bundle = convertToNullIfInvalid(extras.getBundle(ACTION_ARGUMENT_EXTRAS));
               Callback.this.onPrepareFromUri(uri, bundle);
             }
           } else if (action.equals(ACTION_SET_CAPTIONING_ENABLED)) {
@@ -1357,8 +1332,7 @@ public class MediaSessionCompat {
               RatingCompat rating =
                   LegacyParcelableUtil.convert(
                       extras.getParcelable(ACTION_ARGUMENT_RATING), RatingCompat.CREATOR);
-              Bundle bundle = extras.getBundle(ACTION_ARGUMENT_EXTRAS);
-              ensureClassLoader(bundle);
+              Bundle bundle = convertToNullIfInvalid(extras.getBundle(ACTION_ARGUMENT_EXTRAS));
               Callback.this.onSetRating(rating, bundle);
             }
           } else if (action.equals(ACTION_SET_PLAYBACK_SPEED)) {
@@ -1395,7 +1369,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPrepareFromMediaId(mediaId, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1408,7 +1382,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPrepareFromSearch(query, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1421,7 +1395,7 @@ public class MediaSessionCompat {
         if (sessionImpl == null) {
           return;
         }
-        ensureClassLoader(extras);
+        extras = convertToNullIfInvalid(extras);
         setCurrentControllerInfo(sessionImpl);
         Callback.this.onPrepareFromUri(uri, extras);
         clearCurrentControllerInfo(sessionImpl);
@@ -1658,6 +1632,7 @@ public class MediaSessionCompat {
         new Parcelable.Creator<Token>() {
           @Override
           public Token createFromParcel(Parcel in) {
+            @SuppressLint("ParcelClassLoader") // Using boot class loader for framework class.
             MediaSession.Token inner = in.readParcelable(null);
             return new Token(checkNotNull(inner));
           }
@@ -1842,7 +1817,7 @@ public class MediaSessionCompat {
 
     void setFlags(@SessionFlags int flags);
 
-    void setPlaybackToLocal(int stream);
+    void setPlaybackToLocal(AudioAttributes audioAttributes);
 
     void setPlaybackToRemote(VolumeProviderCompat volumeProvider);
 
@@ -1963,11 +1938,8 @@ public class MediaSessionCompat {
     }
 
     @Override
-    public void setPlaybackToLocal(int stream) {
-      // TODO update APIs to use support version of AudioAttributes
-      AudioAttributes.Builder bob = new AudioAttributes.Builder();
-      bob.setLegacyStreamType(stream);
-      sessionFwk.setPlaybackToLocal(bob.build());
+    public void setPlaybackToLocal(AudioAttributes audioAttributes) {
+      sessionFwk.setPlaybackToLocal(audioAttributes.getPlatformAudioAttributes());
     }
 
     @Override

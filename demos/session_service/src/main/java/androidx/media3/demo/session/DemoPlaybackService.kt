@@ -29,6 +29,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.Serializer
 import androidx.datastore.dataStore
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.cast.CastPlayer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.Player
@@ -37,6 +38,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.demo.session.service.R
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.util.EventLogger
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.ControllerInfo
@@ -52,6 +54,21 @@ import kotlinx.coroutines.launch
 open class DemoPlaybackService : MediaLibraryService() {
 
   private lateinit var mediaLibrarySession: MediaLibrarySession
+
+  private val turnShuffleOnButton by
+    lazy @OptIn(UnstableApi::class) {
+      CommandButton.Builder(CommandButton.ICON_SHUFFLE_OFF)
+        .setDisplayName(getString(androidx.media3.ui.R.string.exo_controls_shuffle_off_description))
+        .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE, /* parameter= */ true)
+        .build()
+    }
+  private val turnShuffleOffButton by
+    lazy @OptIn(UnstableApi::class) {
+      CommandButton.Builder(CommandButton.ICON_SHUFFLE_ON)
+        .setDisplayName(getString(androidx.media3.ui.R.string.exo_controls_shuffle_on_description))
+        .setPlayerCommand(Player.COMMAND_SET_SHUFFLE_MODE, /* parameter= */ false)
+        .build()
+    }
 
   companion object {
     private const val NOTIFICATION_ID = 123
@@ -138,7 +155,7 @@ open class DemoPlaybackService : MediaLibraryService() {
   @OptIn(UnstableApi::class) // Player.listen
   private fun initializeSessionAndPlayer() {
     val player = buildPlayer()
-    CoroutineScope(Dispatchers.Unconfined).launch {
+    lifecycleScope.launch {
       player.listenTo(Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_MEDIA_ITEM_TRANSITION) {
         storeCurrentMediaItem()
       }
@@ -148,6 +165,13 @@ open class DemoPlaybackService : MediaLibraryService() {
       MediaLibrarySession.Builder(this, player, createLibrarySessionCallback())
         .also { builder -> getSingleTopActivity()?.let { builder.setSessionActivity(it) } }
         .build()
+
+    mediaLibrarySession.setCustomShuffleModeButton()
+    lifecycleScope.launch {
+      player.listenTo(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED) {
+        mediaLibrarySession.setCustomShuffleModeButton()
+      }
+    }
   }
 
   @OptIn(UnstableApi::class)
@@ -159,6 +183,12 @@ open class DemoPlaybackService : MediaLibraryService() {
     exoPlayer.addAnalyticsListener(EventLogger())
     return CastPlayer.Builder(/* context= */ this).setLocalPlayer(exoPlayer).build()
   }
+
+  @OptIn(UnstableApi::class)
+  private fun MediaSession.setCustomShuffleModeButton() =
+    setMediaButtonPreferences(
+      listOf(if (player.shuffleModeEnabled) turnShuffleOffButton else turnShuffleOnButton)
+    )
 
   @OptIn(UnstableApi::class) // BitmapLoader
   private fun storeCurrentMediaItem() {

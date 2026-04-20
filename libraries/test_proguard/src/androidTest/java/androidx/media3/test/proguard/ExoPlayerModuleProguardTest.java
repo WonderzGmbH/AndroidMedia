@@ -126,8 +126,16 @@ public final class ExoPlayerModuleProguardTest {
   }
 
   @Test
-  public void compositingVideoSinkProvider_createSingleInputVideoGraph_succeeds() throws Exception {
-    ExoPlayerModuleProguard.createSingleInputVideoGraphWithCompositingVideoSinkProvider(
-        ApplicationProvider.getApplicationContext());
+  public void setVideoEffects_keepsDefaultVideoFrameProcessorClasses() {
+    getInstrumentation()
+        .runOnMainSync(
+            () -> {
+              try {
+                ExoPlayerModuleProguard.setVideoEffectsAndCheckReflectiveAccess(
+                    getApplicationContext());
+              } catch (Exception e) {
+                throw new RuntimeException(e);
+              }
+            });
   }
 }

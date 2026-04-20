@@ -34,9 +34,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.Util;
-import androidx.media3.container.DolbyVisionConfig;
 import androidx.media3.container.MdtaMetadataEntry;
 import androidx.media3.container.Mp4LocationData;
 import androidx.media3.container.NalUnitUtil;
@@ -224,7 +222,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
           handlerType = "meta";
           handlerName = "MetaHandle";
           mhdBox = nmhd();
-          sampleEntryBox = textMetaDataSampleEntry(format);
+          sampleEntryBox = getMetadataSampleEntry(format);
           stsdBox = stsd(sampleEntryBox);
           stblBox = stbl(stsdBox, stts, stsz, stsc, chunkOffsetBox);
           break;
@@ -459,16 +457,44 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("nmhd", contents);
   }
 
+  /** Returns the metadata sample entry box. */
+  public static ByteBuffer getMetadataSampleEntry(Format format) {
+    return MimeTypes.APPLICATION_ITUT_T35.equals(format.sampleMimeType)
+        ? t35MetadataSampleEntry(format)
+        : textMetadataSampleEntry(format);
+  }
+
+  private static ByteBuffer t35MetadataSampleEntry(Format format) {
+    checkArgument(format.initializationData.size() == 1);
+    ByteBuffer contents = ByteBuffer.allocate(MAX_FIXED_LEAF_BOX_SIZE);
+
+    // SampleEntry fields
+    contents.putInt(0); // reserved
+    contents.putShort((short) 0); // reserved
+    contents.putShort((short) 1); // data_reference_index
+
+    // it35 specific fields
+    contents.put((byte) 0x0); // description
+    contents.put(format.initializationData.get(0)); // itu_t_t35_data_prefix
+    contents.flip();
+    return BoxUtils.wrapIntoBox("it35", contents);
+  }
+
   /**
    * Returns a text metadata sample entry box as per ISO/IEC 14496-12: 8.5.2.2.
    *
    * <p>This contains the sample entry (to be placed within the sample description box) for the text
    * metadata tracks.
    */
-  public static ByteBuffer textMetaDataSampleEntry(Format format) {
+  private static ByteBuffer textMetadataSampleEntry(Format format) {
     ByteBuffer contents = ByteBuffer.allocate(MAX_FIXED_LEAF_BOX_SIZE);
     String mimeType = checkNotNull(format.sampleMimeType);
     byte[] mimeBytes = Util.getUtf8Bytes(mimeType);
+
+    contents.putInt(0); // reserved
+    contents.putShort((short) 0); // reserved
+    contents.putShort((short) 1); // data_reference_index
+
     contents.put(mimeBytes); // content_encoding
     contents.put((byte) 0x0);
     contents.put(mimeBytes); // mime_format
@@ -905,8 +931,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     long currentSampleTimeUs = presentationTimestampsUs.get(0);
     for (int nextSampleId = 1; nextSampleId < presentationTimestampsUs.size(); nextSampleId++) {
       long nextSampleTimeUs = presentationTimestampsUs.get(nextSampleId);
+      // Convert timestamps in microseconds to VU first and then calculate the duration in VU to
+      // avoid error accumulation.
       long currentSampleDurationVu =
-          vuFromUs(nextSampleTimeUs - currentSampleTimeUs, videoUnitTimescale);
+          vuFromUs(nextSampleTimeUs, videoUnitTimescale)
+              - vuFromUs(currentSampleTimeUs, videoUnitTimescale);
       checkState(
           currentSampleDurationVu <= Integer.MAX_VALUE, "Only 32-bit sample duration is allowed");
       durationsVu.add((int) currentSampleDurationVu);
@@ -1564,28 +1593,24 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns a dvcC/dvwC/dvvC vision box which will be included in dolby vision box. */
   private static ByteBuffer doviBox(int profile, byte[] csd) {
     checkArgument(csd.length > 0, "csd is empty for dovi box.");
-    if (profile <= 7) {
+    if (profile == 5) {
       return BoxUtils.wrapIntoBox("dvcC", ByteBuffer.wrap(csd));
-    } else if (profile <= 10) {
+    } else if (profile == 8 || profile == 9) {
       return BoxUtils.wrapIntoBox("dvvC", ByteBuffer.wrap(csd));
-    } else if (profile <= 19) {
-      return BoxUtils.wrapIntoBox("dvwC", ByteBuffer.wrap(csd));
-    } else if (profile == 20) {
-      return BoxUtils.wrapIntoBox("dvcC", ByteBuffer.wrap(csd));
     } else {
-      return BoxUtils.wrapIntoBox("dvwC", ByteBuffer.wrap(csd));
+      throw new IllegalArgumentException("Unsupported Dolby Vision profile " + profile);
     }
   }
 
   /** Returns a dolby vision box as per Dolby Vision ISO media format. */
   private static ByteBuffer doviSpecificBox(Format format) {
-    checkArgument(
-        !format.initializationData.isEmpty(), "csd is not found in the format for dolby vision");
-    byte[] dolbyVisionCsd = Iterables.getLast(format.initializationData);
-    DolbyVisionConfig dolbyVisionConfig = getDolbyVisionConfig(format);
-    checkNotNull(dolbyVisionConfig, "Dolby vision codec is not supported.");
-    ByteBuffer avcHevcBox = dolbyVisionConfig.profile <= 8 ? hvcCBox(format) : avcCBox(format);
-    ByteBuffer dolbyBox = doviBox(dolbyVisionConfig.profile, dolbyVisionCsd);
+    @Nullable Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
+    checkNotNull(profileAndLevel, "Can't identify Dolby vision profile");
+    ByteBuffer avcHevcBox = profileAndLevel.first <= 8 ? hvcCBox(format) : avcCBox(format);
+    byte[] dolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+            profileAndLevel.first, profileAndLevel.second);
+    ByteBuffer dolbyBox = doviBox(profileAndLevel.first, dolbyVisionCsd);
     return BoxUtils.concatenateBuffers(avcHevcBox, dolbyBox);
   }
 
@@ -1732,31 +1757,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("colr", contents);
   }
 
-  @Nullable
-  private static DolbyVisionConfig getDolbyVisionConfig(Format format) {
-    @Nullable
-    DolbyVisionConfig dolbyVisionConfig =
-        DolbyVisionConfig.parse(
-            new ParsableByteArray(Iterables.getLast(format.initializationData)));
-    if (dolbyVisionConfig == null && format.codecs != null) {
-      Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
-      checkNotNull(profileAndLevel, "Dolby Vision profile and level is not found.");
-      byte[] dolbyVisionCsd =
-          CodecSpecificDataUtil.buildDolbyVisionInitializationData(
-              /* profile= */ profileAndLevel.first, /* level= */ profileAndLevel.second);
-      dolbyVisionConfig = DolbyVisionConfig.parse(new ParsableByteArray(dolbyVisionCsd));
-    }
-    return dolbyVisionConfig;
-  }
-
   /** Returns codec specific fourcc for Dolby vision. */
   private static String getDoviFourcc(Format format) {
-    @Nullable DolbyVisionConfig dolbyVisionConfig = getDolbyVisionConfig(format);
-    checkNotNull(
-        dolbyVisionConfig,
-        "Dolby Vision Initialization data is not found for format: %s",
-        format.sampleMimeType);
-    switch (dolbyVisionConfig.profile) {
+    Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
+    checkNotNull(profileAndLevel, "Dolby Vision profile and level is not found.");
+    switch (profileAndLevel.first) {
       case 5:
         return "dvh1";
       case 8:
@@ -1766,7 +1771,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
       default:
         throw new IllegalArgumentException(
             "Unsupported profile "
-                + dolbyVisionConfig.profile
+                + profileAndLevel.first
                 + " for format: "
                 + format.sampleMimeType);
     }
@@ -1916,15 +1921,25 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     checkArgument(
         !format.initializationData.isEmpty(), "csd-0 not found in the format for dOps box.");
 
-    int opusHeaderLength = 8;
-    byte[] csd0 = format.initializationData.get(0);
-    checkArgument(
-        csd0.length >= opusHeaderLength,
-        "As csd0 contains 'OpusHead' in first 8 bytes, csd0 length should be greater than 8");
+    int opusHeadSignatureLength = 8;
+    byte[] csd0 = CodecSpecificDataUtil.getOpusInitializationData(format);
+    // As csd0 contains 'OpusHead' in first 8 bytes, csd0 length should be greater than 8.
+    checkArgument(csd0.length >= opusHeadSignatureLength);
     ByteBuffer contents = ByteBuffer.allocate(csd0.length);
     // Skip 8 bytes containing "OpusHead".
     contents.put(
-        /* src */ csd0, /* offset */ opusHeaderLength, /* length */ csd0.length - opusHeaderLength);
+        /* src */ csd0,
+        /* offset */ opusHeadSignatureLength,
+        /* length */ csd0.length - opusHeadSignatureLength);
+
+    // For encapsulation of OPUS in MP4, the version byte (byte 0) in dOps box should be 0.
+    // (See https://opus-codec.org/docs/opus_in_isobmff.html, Section 4.3.2 Opus Specific Box).
+    // And for Ogg containers, the version byte is
+    // expected to be 1 (See https://www.rfc-editor.org/rfc/rfc7845#section-5.1, Section 5.1.2).
+    // The contents are otherwise identical.
+    checkState(contents.get(0) == 0 || contents.get(0) == 1);
+    contents.put(0, (byte) 0);
+
     contents.flip();
 
     return BoxUtils.wrapIntoBox("dOps", contents);

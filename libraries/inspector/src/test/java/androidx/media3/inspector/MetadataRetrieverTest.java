@@ -36,8 +36,10 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.util.Util;
 import androidx.media3.container.MdtaMetadataEntry;
 import androidx.media3.container.Mp4TimestampData;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.TrackGroupArray;
+import androidx.media3.extractor.DefaultExtractorsFactory;
 import androidx.media3.extractor.metadata.MotionPhotoMetadata;
 import androidx.media3.extractor.metadata.mp4.SlowMotionData;
 import androidx.media3.extractor.metadata.mp4.SmtaMetadataEntry;
@@ -93,7 +95,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_singleMediaItem_outputsExpectedResult() throws Exception {
+  public void retrieveMetadata_singleMediaItem_outputsExpectedResult() throws Exception {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
 
@@ -123,7 +125,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_multipleMediaItems_outputsExpectedResults() throws Exception {
+  public void retrieveMetadata_multipleMediaItems_outputsExpectedResults() throws Exception {
     MediaItem mediaItem1 =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
     MediaItem mediaItem2 =
@@ -173,7 +175,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_heicMotionPhoto_outputsExpectedResult() throws Exception {
+  public void retrieveMetadata_heicMotionPhoto_outputsExpectedResult() throws Exception {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/heif/sample_MP.heic"));
     MotionPhotoMetadata expectedMotionPhotoMetadata =
@@ -206,7 +208,7 @@ public class MetadataRetrieverTest {
 
   @Test
   public void
-      retrieveUsingInstance_heicStillPhotoWithImageDuration_outputsEmptyMetadataAndImageDuration()
+      retrieveMetadata_heicStillPhotoWithImageDuration_outputsEmptyMetadataAndImageDuration()
           throws Exception {
     MediaItem mediaItem =
         new MediaItem.Builder()
@@ -233,7 +235,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_sefSlowMotionAvc_outputsExpectedResult() throws Exception {
+  public void retrieveMetadata_sefSlowMotionAvc_outputsExpectedResult() throws Exception {
     MdtaMetadataEntry expectedAndroidVersionMetadata =
         new MdtaMetadataEntry(
             "com.android.version", Util.getUtf8Bytes("10"), TYPE_INDICATOR_STRING);
@@ -298,7 +300,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_sefSlowMotionHevc_outputsExpectedResult() throws Exception {
+  public void retrieveMetadata_sefSlowMotionHevc_outputsExpectedResult() throws Exception {
     MdtaMetadataEntry expectedAndroidVersionMetadata =
         new MdtaMetadataEntry(
             "com.android.version", Util.getUtf8Bytes("13"), TYPE_INDICATOR_STRING);
@@ -354,7 +356,40 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_invalidMediaItem_throwsError() {
+  public void retrieveDuration_adtsWithDefaultBuilder_returnsEstimatedDuration() throws Exception {
+    MediaItem mediaItem =
+        MediaItem.fromUri(Uri.parse("asset://android_asset/media/ts/sample.adts"));
+
+    try (MetadataRetriever retriever =
+        new MetadataRetriever.Builder(context, mediaItem).setClock(clock).build()) {
+      long durationUs = retriever.retrieveDurationUs().get(TEST_TIMEOUT_SEC, TimeUnit.SECONDS);
+
+      // With constant bitrate seeking enabled by default for AdtsExtractor, the duration is set.
+      assertThat(durationUs).isEqualTo(3_356_772);
+    }
+  }
+
+  @Test
+  public void retrieveDuration_adtsWithCbrSeekingDisabled_returnsUnsetDuration() throws Exception {
+    MediaItem mediaItem =
+        MediaItem.fromUri(Uri.parse("asset://android_asset/media/ts/sample.adts"));
+    MediaSource.Factory mediaSourceFactory =
+        new DefaultMediaSourceFactory(context, new DefaultExtractorsFactory());
+
+    try (MetadataRetriever retriever =
+        new MetadataRetriever.Builder(context, mediaItem)
+            .setClock(clock)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()) {
+      long durationUs = retriever.retrieveDurationUs().get(TEST_TIMEOUT_SEC, TimeUnit.SECONDS);
+
+      // Without the CBR seeking flag, AdtsExtractor reports duration as unset.
+      assertThat(durationUs).isEqualTo(C.TIME_UNSET);
+    }
+  }
+
+  @Test
+  public void retrieveMetadata_invalidMediaItem_throwsError() {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/does_not_exist"));
 
@@ -369,7 +404,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_subsequentRetrievals_completeImmediately() throws Exception {
+  public void retrieveMetadata_subsequentRetrievals_completeImmediately() throws Exception {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
 
@@ -394,7 +429,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_releasesMediaSource_afterRetrieval() throws Exception {
+  public void retrieveMetadata_releasesMediaSource_afterRetrieval() throws Exception {
     FakeMediaSource fakeMediaSource = new FakeMediaSource();
     MediaSource.Factory mediaSourceFactory = mock(MediaSource.Factory.class);
     when(mediaSourceFactory.createMediaSource(any(MediaItem.class))).thenReturn(fakeMediaSource);
@@ -417,7 +452,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_releasesMediaSource_afterCancellation() throws Exception {
+  public void retrieveMetadata_releasesMediaSource_afterCancellation() throws Exception {
     FakeMediaSource fakeMediaSource = new FakeMediaSource();
     fakeMediaSource.setAllowPreparation(false);
     MediaSource.Factory mediaSourceFactory = mock(MediaSource.Factory.class);
@@ -442,7 +477,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_closeWhileRetrievalOngoing_doesNotInterruptRetrieval()
+  public void retrieveMetadata_closeWhileRetrievalOngoing_doesNotInterruptRetrieval()
       throws Exception {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
@@ -458,7 +493,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_cancelOneFuture_doesNotAffectOthers() throws Exception {
+  public void retrieveMetadata_cancelOneFuture_doesNotAffectOthers() throws Exception {
     Timeline timeline =
         new FakeTimeline(
             new FakeTimeline.TimelineWindowDefinition.Builder().setPeriodCount(1).build());
@@ -490,7 +525,7 @@ public class MetadataRetrieverTest {
   }
 
   @Test
-  public void retrieveUsingInstance_afterClose_throwsError() {
+  public void retrieveMetadata_afterClose_throwsError() {
     MediaItem mediaItem =
         MediaItem.fromUri(Uri.parse("asset://android_asset/media/mp4/sample.mp4"));
     MetadataRetriever retriever =
