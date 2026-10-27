@@ -21,6 +21,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
 import android.annotation.SuppressLint;
+import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.Service;
@@ -926,12 +927,26 @@ public abstract class DownloadService extends Service {
       @RequirementFlags int notMetRequirements = downloadManager.getNotMetRequirements();
       Notification notification = getForegroundNotification(downloads, notMetRequirements);
       if (!notificationDisplayed) {
-        Util.setForegroundServiceNotification(
-            /* service= */ DownloadService.this,
-            notificationId,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-            "dataSync");
+        try {
+          Util.setForegroundServiceNotification(
+              /* service= */ DownloadService.this,
+              notificationId,
+              notification,
+              ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+              "dataSync");
+        } catch (IllegalStateException e) {
+          if (SDK_INT >= 31 && e instanceof ForegroundServiceStartNotAllowedException) {
+            // The platform refuses a foreground service that the app starts while in the
+            // background, or once the daily dataSync time limit is used up. Keep running in the
+            // background, and try again on the next download change, which succeeds once the app
+            // is in the foreground. A refused call still counts as the startForeground() call that
+            // startForegroundService() requires.
+            Log.w(TAG, "Failed to start the foreground service", e);
+            stopPeriodicUpdates();
+            return;
+          }
+          throw e;
+        }
         notificationDisplayed = true;
       } else {
         // Update the notification via NotificationManager rather than by repeatedly calling
