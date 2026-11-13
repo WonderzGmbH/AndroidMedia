@@ -23,7 +23,7 @@ androidxAnnotationExperimentalVersion = "1.3.1"
 androidxAppCompatVersion = "1.6.1"
 androidxCollectionVersion = "1.2.0"
 # See https://developer.android.com/develop/ui/compose/bom/bom-mapping
-androidxComposeBomVersion = "2026.05.00" # TODO: b/502167525 - Upgade
+androidxComposeBomVersion = "2026.09.00" # TODO: b/502167525 - Upgade
 androidxConcurrentFuturesVersion = "1.2.0"
 androidxConstraintLayoutVersion = "2.1.4"
 androidxCoreVersion = "1.9.0"
@@ -65,7 +65,7 @@ jsr305Version = "3.0.2"
 junitVersion = "4.13.2"
 kotlinAnnotationsVersion = "1.9.0"
 # Not the same as kotlin version, https://github.com/Kotlin/kotlinx.coroutines/releases
-kotlinxCoroutinesVersion = "1.9.0"
+kotlinxCoroutinesVersion = "1.11.0"
 ktorVersion = "3.6.1"
 leakCanaryVersion = "2.10"
 lottieVersion = "6.6.0"

@@ -26,15 +26,14 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.robolectric.Shadows.shadowOf;
 
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.Player;
 import androidx.media3.common.Player.Listener;
+import androidx.media3.common.Player;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -44,6 +43,8 @@ import org.junit.After;
 import org.junit.Test;
 import org.mockito.InOrder;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadow.api.Shadow;
+import org.robolectric.shadows.ShadowAudioManager;
 
 /**
  * A collection of contract tests for {@link Player} implementations that support {@link
@@ -123,7 +124,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void play_withAudioFocusRequestGranted_startsPlayback() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -146,7 +148,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void play_withAudioFocusRequestDenied_doesNotPlay() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -170,7 +173,8 @@ public abstract class PlayerAudioFocusContractTest {
   @Test
   public void play_withHandleAudioFocusDisabled_ignoresDeniedRequestAndStartsPlayback()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -192,7 +196,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void audioFocusLost_whilePlaying_pausesPlayback() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -225,7 +230,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void transientLossAndGain_whilePlaying_suppressesPlaybackWhileLost() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -275,7 +281,8 @@ public abstract class PlayerAudioFocusContractTest {
   @Test
   public void pause_duringTransientLossWhilePlaying_keepsPlaybackPausedAndSuppressed()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -326,7 +333,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void audioFocusLoss_whilePaused_rereportsPausedWithFocusLoss() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -364,7 +372,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void transientLossAndGain_whilePaused_suppressesPlayback() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -418,7 +427,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void play_duringTransientLossWhilePaused_continuesPlayback() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -476,7 +486,8 @@ public abstract class PlayerAudioFocusContractTest {
   @Test
   public void play_duringTransientLossWhilePlayingWithRegularGain_continuesPlayback()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -491,7 +502,8 @@ public abstract class PlayerAudioFocusContractTest {
         playerInfo.getAudioFocusListenerLooper(), AudioManager.AUDIOFOCUS_LOSS_TRANSIENT);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     player.play();
     boolean playWhenReadyInitial = player.getPlayWhenReady();
     @Player.PlaybackSuppressionReason
@@ -527,7 +539,8 @@ public abstract class PlayerAudioFocusContractTest {
   @Test
   public void play_duringTransientLossWhilePlayingWithDelayedGainAndRegularGain_continuesPlayback()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -542,7 +555,8 @@ public abstract class PlayerAudioFocusContractTest {
         playerInfo.getAudioFocusListenerLooper(), AudioManager.AUDIOFOCUS_LOSS_TRANSIENT);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED);
     player.play();
     boolean playWhenReadyInitial = player.getPlayWhenReady();
     @Player.PlaybackSuppressionReason
@@ -589,7 +603,8 @@ public abstract class PlayerAudioFocusContractTest {
   public void
       play_duringTransientLossWhilePlayingWithDelayedGainAndLoss_continuesAndPausesPlayback()
           throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -604,7 +619,8 @@ public abstract class PlayerAudioFocusContractTest {
         playerInfo.getAudioFocusListenerLooper(), AudioManager.AUDIOFOCUS_LOSS_TRANSIENT);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_DELAYED);
     player.play();
     boolean playWhenReadyInitial = player.getPlayWhenReady();
     @Player.PlaybackSuppressionReason
@@ -649,7 +665,8 @@ public abstract class PlayerAudioFocusContractTest {
 
   @Test
   public void play_duringTransientLossWhilePlayingWithLoss_pausesPlayback() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     Listener listener = mock(Player.Listener.class);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
@@ -664,7 +681,8 @@ public abstract class PlayerAudioFocusContractTest {
         playerInfo.getAudioFocusListenerLooper(), AudioManager.AUDIOFOCUS_LOSS_TRANSIENT);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
     player.play();
     boolean playWhenReadyInitial = player.getPlayWhenReady();
     @Player.PlaybackSuppressionReason
@@ -701,7 +719,7 @@ public abstract class PlayerAudioFocusContractTest {
     Util.postOrRun(
         new Handler(listenerLooper),
         () ->
-            shadowOf(audioManager)
+            Shadow.<ShadowAudioManager>extract(audioManager)
                 .getLastAudioFocusRequest()
                 .listener
                 .onAudioFocusChange(focusChange));

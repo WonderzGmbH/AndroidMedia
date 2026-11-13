@@ -80,15 +80,17 @@ details.
 [AndroidX Media3 developer.android.com page]: https://developer.android.com/jetpack/androidx/releases/media3#declaring_dependencies
 [libraries directory]: libraries
 
-#### 2. Turn on Java 8 support
+#### 2. Turn on Java 11 support
 
-If not enabled already, you also need to turn on Java 8 support in all
+This Mediabox fork targets Java/Kotlin 11 for Compose 1.12 inline APIs. It builds with
+JDK 17 and compile SDK 37, retaining minSdk 23. Enable Java 11 support in all
 `build.gradle.kts` files depending on AndroidX Media, by adding the following to
 the `android` section:
 
 ```kotlin
 compileOptions {
-  targetCompatibility = JavaVersion.VERSION_1_8
+  sourceCompatibility = JavaVersion.VERSION_11
+  targetCompatibility = JavaVersion.VERSION_11
 }
 ```
 
@@ -96,9 +98,13 @@ Or in Gradle Groovy DSL `build.gradle`:
 
 ```groovy
 compileOptions {
-    targetCompatibility JavaVersion.VERSION_1_8
+    sourceCompatibility JavaVersion.VERSION_11
+    targetCompatibility JavaVersion.VERSION_11
 }
 ```
+
+Kotlin consumers must also target JVM 11. Robolectric tests targeting Android API 36
+require a Java 21 test runtime; production libraries compile with JDK 17.
 
 ### Locally
 

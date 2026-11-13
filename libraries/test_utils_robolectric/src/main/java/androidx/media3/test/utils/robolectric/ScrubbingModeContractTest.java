@@ -26,7 +26,6 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.robolectric.Shadows.shadowOf;
 
 import android.media.AudioManager;
 import android.os.Handler;
@@ -43,6 +42,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.junit.After;
 import org.junit.Test;
 import org.mockito.InOrder;
+import org.robolectric.shadow.api.Shadow;
+import org.robolectric.shadows.ShadowAudioManager;
 
 /**
  * A collection of contract tests for {@link Player} implementations that support {@link
@@ -166,7 +167,8 @@ public abstract class ScrubbingModeContractTest {
 
   @Test
   public void audioFocusLoss_whileScrubbing_setsPlayWhenReadyToFalse() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -196,7 +198,8 @@ public abstract class ScrubbingModeContractTest {
   public void
       disableScrubbing_audioFocusLostWhileScrubbingWhenPreviouslyPlaying_playsWithGrantedAudioFocus()
           throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -222,7 +225,9 @@ public abstract class ScrubbingModeContractTest {
         .onPlayWhenReadyChanged(
             /* playWhenReady= */ false, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS);
 
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     playerInfo.setScrubbingModeEnabled(false);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
@@ -240,7 +245,8 @@ public abstract class ScrubbingModeContractTest {
   @Test
   public void disableScrubbing_afterLossOfAudioFocusWhileScrubbing_handlesDeniedFocusRequest()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -267,7 +273,9 @@ public abstract class ScrubbingModeContractTest {
         .onPlayWhenReadyChanged(
             /* playWhenReady= */ false, Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS);
 
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
     playerInfo.setScrubbingModeEnabled(false);
 
     advance(player)
@@ -281,7 +289,8 @@ public abstract class ScrubbingModeContractTest {
   @Test
   public void transientAudioFocusLoss_whileScrubbing_onlyUpdatesSuppressionReason()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -312,7 +321,8 @@ public abstract class ScrubbingModeContractTest {
   @Test
   public void recoverAudioFocus_afterTransientLossWhileScrubbing_returnsToScrubbingSuppression()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -345,7 +355,8 @@ public abstract class ScrubbingModeContractTest {
 
   @Test
   public void disableScrubbing_afterTransientAudioFocusLoss_requestsAudioFocus() throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -377,7 +388,8 @@ public abstract class ScrubbingModeContractTest {
   @Test
   public void disableScrubbing_afterTransientAudioFocusLoss_handlesDeniedFocusRequest()
       throws Exception {
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_GRANTED);
     PlayerInfo playerInfo = createPlayerInfo();
     player = playerInfo.getPlayer();
     Player.Listener listener = mock(Player.Listener.class);
@@ -394,7 +406,9 @@ public abstract class ScrubbingModeContractTest {
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
 
-    shadowOf(audioManager).setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
+    Shadow.<ShadowAudioManager>extract(audioManager)
+
+        .setNextFocusRequestResponse(AudioManager.AUDIOFOCUS_REQUEST_FAILED);
     playerInfo.setScrubbingModeEnabled(false);
     advance(player)
         .untilPendingCommandsAreFullyHandled(playerInfo.getClock(), playerInfo.getPlaybackLooper());
@@ -412,7 +426,7 @@ public abstract class ScrubbingModeContractTest {
     Util.postOrRun(
         new Handler(listenerLooper),
         () ->
-            shadowOf(audioManager)
+            Shadow.<ShadowAudioManager>extract(audioManager)
                 .getLastAudioFocusRequest()
                 .listener
                 .onAudioFocusChange(focusChange));

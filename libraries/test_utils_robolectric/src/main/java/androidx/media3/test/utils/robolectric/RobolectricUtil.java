@@ -15,7 +15,6 @@
  */
 package androidx.media3.test.utils.robolectric;
 
-import static org.robolectric.Shadows.shadowOf;
 
 import android.annotation.SuppressLint;
 import android.os.Looper;
@@ -27,6 +26,7 @@ import androidx.media3.test.utils.ThreadTestUtil;
 import com.google.common.base.Supplier;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
+import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowLooper;
 
 /** Utility methods for Robolectric-based tests. */
@@ -211,7 +211,7 @@ public final class RobolectricUtil {
       throw new IllegalStateException();
     }
     ThreadTestUtil.unblockThreadsWaitingForProgressOnCurrentLooper();
-    ShadowLooper shadowLooper = shadowOf(looper);
+    ShadowLooper shadowLooper = Shadow.extract(looper);
     long timeoutTimeMs = clock.currentTimeMillis() + timeoutMs;
     while (!condition.get()) {
       if (clock.currentTimeMillis() >= timeoutTimeMs) {

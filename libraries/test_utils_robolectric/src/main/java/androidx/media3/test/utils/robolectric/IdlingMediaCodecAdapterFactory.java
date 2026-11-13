@@ -16,7 +16,6 @@
 package androidx.media3.test.utils.robolectric;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.robolectric.Shadows.shadowOf;
 
 import android.content.Context;
 import android.os.HandlerThread;
@@ -26,12 +25,13 @@ import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.HandlerWrapper;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.mediacodec.DefaultMediaCodecAdapterFactory;
-import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter;
 import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Configuration;
+import androidx.media3.exoplayer.mediacodec.MediaCodecAdapter;
 import com.google.common.base.Supplier;
 import com.google.common.collect.Sets;
 import java.io.IOException;
 import java.util.Set;
+import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowLooper;
 
 /**
@@ -111,7 +111,7 @@ public final class IdlingMediaCodecAdapterFactory implements MediaCodecAdapter.F
     for (HandlerThread thread : threads) {
       @Nullable Looper looper = thread.getLooper();
       if (looper != null && thread.isAlive()) {
-        ShadowLooper shadowLooper = shadowOf(looper);
+        ShadowLooper shadowLooper = Shadow.extract(looper);
         try {
           shadowLooper.idle();
         } catch (IllegalStateException e) {
