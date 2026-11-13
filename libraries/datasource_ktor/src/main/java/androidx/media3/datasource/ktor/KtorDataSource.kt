@@ -28,7 +28,6 @@ import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.HttpUtil
 import androidx.media3.datasource.TransferListener
 import com.google.common.base.Predicate
-import com.google.common.collect.Maps
 import com.google.common.net.HttpHeaders
 import com.google.errorprone.annotations.CanIgnoreReturnValue
 import io.ktor.client.HttpClient
@@ -47,6 +46,8 @@ import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InterruptedIOException
+import java.util.Collections
+import java.util.TreeMap
 import kotlin.math.min
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -82,9 +83,11 @@ private constructor(
 
   override fun getResponseHeaders(): Map<String, List<String>> {
     val headers = response?.headers ?: return emptyMap()
-    return Maps.asMap<String, List<String>>(headers.names()) { name ->
-      headers.getAll(name) as List<String>
-    }
+    // Ktor header-name sets need not preserve case-insensitive Map lookups.
+    // Media3 callers also retain these headers after close, so return a snapshot.
+    val responseHeaders = TreeMap<String, List<String>>(String.CASE_INSENSITIVE_ORDER)
+    headers.entries().forEach { (name, values) -> responseHeaders[name] = values }
+    return Collections.unmodifiableMap(responseHeaders)
   }
 
   override fun setRequestProperty(name: String, value: String) = requestProperties.set(name, value)
